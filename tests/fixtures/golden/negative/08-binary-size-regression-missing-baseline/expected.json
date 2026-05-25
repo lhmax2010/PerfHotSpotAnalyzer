@@ -1,0 +1,8 @@
+{
+  "fixture_id": "negative-08",
+  "document": "performance-findings.json",
+  "document_type": "performance-findings",
+  "valid": false,
+  "expected_rules": ["json-schema"]
+}
+

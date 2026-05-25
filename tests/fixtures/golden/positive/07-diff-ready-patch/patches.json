@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "source_reports": [
+    {
+      "id": "S1",
+      "path": "performance-findings.json",
+      "source_format": "analyzer-json",
+      "parser": "structured",
+      "confidence": 0.95
+    }
+  ],
+  "patches": [
+    {
+      "id": "P001",
+      "finding_id": "F001",
+      "source_ref": {"source_id": "S1", "locator": "$.findings[0]", "label": "decode_block"},
+      "patch_category": "local-micro-optimization",
+      "strategy": "hoist-loop-invariant",
+      "chosen_anchor": {
+        "symbol": "decode_block",
+        "file": "src/decode.c",
+        "line_start": 120,
+        "line_end": 156,
+        "anchor_confidence": 0.86,
+        "resolution_method": "dwarf"
+      },
+      "diff": "--- a/src/decode.c\n+++ b/src/decode.c\n@@ -120,2 +120,2 @@\n-  for (int i = 0; i < n; ++i) slow(path, i);\n+  for (int i = 0; i < n; ++i) fast(path, i);\n",
+      "files_touched": ["src/decode.c"],
+      "files_touched_policy": {
+        "allowed": true,
+        "reason": "Default source path and local micro-optimization.",
+        "risk": "low"
+      },
+      "expected_impact": {"level": "medium", "estimate": "~5%", "confidence": 0.7},
+      "measured_impact": null,
+      "side_effects": {
+        "runtime_memory": "unknown",
+        "binary_size": "unknown",
+        "startup_time": "unknown",
+        "maintainability": "low risk"
+      },
+      "risk": {"level": "low", "notes": "Local change anchored by DWARF."},
+      "rationale": "The hotspot is local and has a reliable source anchor.",
+      "verify_cmd": "cmake --build build && ctest --test-dir build",
+      "verification_plan": {
+        "build_cmd": "cmake --build build",
+        "test_cmd": "ctest --test-dir build",
+        "benchmark_cmd": null,
+        "manual_steps": [],
+        "required": true
+      },
+      "status": "diff-ready",
+      "validation_status": "not-run"
+    }
+  ],
+  "apply_instructions": "Review the patch manually; do not auto-apply.",
+  "provenance": {
+    "generated_by": "m0.5-fixture",
+    "version": "1.0.0",
+    "timestamp": "2026-05-25T00:00:00Z"
+  }
+}

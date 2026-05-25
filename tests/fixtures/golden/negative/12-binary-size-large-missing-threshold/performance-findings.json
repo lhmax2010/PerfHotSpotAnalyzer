@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["binary-size"],
+  "target": {
+    "name": "demo-decoder",
+    "kind": "binary",
+    "repo_root": "/repo/demo",
+    "commit": "abc123",
+    "build_config": "release",
+    "platform": {"os": "linux", "arch": "x86_64"}
+  },
+  "source_reports": [
+    {
+      "id": "S1",
+      "path": "size.json",
+      "source_format": "analyzer-json",
+      "parser": "structured",
+      "confidence": 0.95
+    }
+  ],
+  "run_context": {
+    "device": "host",
+    "cpu_governor": "unknown",
+    "core_count": 8,
+    "repeat_count": 1,
+    "warmup_count": 0
+  },
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "binary-size-large",
+      "title": ".rodata is large without threshold",
+      "source_ref": {"source_id": "S1", "locator": "$.sections['.rodata']", "label": ".rodata"},
+      "evidence": {
+        "metric": "section_bytes",
+        "value": 131072,
+        "unit": "bytes",
+        "section": ".rodata",
+        "file": "demo-decoder"
+      },
+      "diagnosis": "Invalid fixture: missing threshold.",
+      "confidence": 0.9
+    }
+  ],
+  "provenance": {
+    "generated_by": "m0.5-fixture",
+    "version": "1.0.0",
+    "timestamp": "2026-05-25T00:00:00Z"
+  }
+}

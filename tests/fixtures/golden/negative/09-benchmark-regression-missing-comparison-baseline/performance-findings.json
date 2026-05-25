@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["benchmark"],
+  "target": {
+    "name": "decode-bench",
+    "kind": "benchmark-suite",
+    "repo_root": "/repo/demo",
+    "commit": "def456",
+    "build_config": "release",
+    "platform": {"os": "linux", "arch": "x86_64"}
+  },
+  "source_reports": [
+    {
+      "id": "S1",
+      "path": "after.json",
+      "source_format": "google-benchmark",
+      "parser": "structured",
+      "confidence": 0.98
+    }
+  ],
+  "comparison": {
+    "current_report": "after.json",
+    "compare_method": "name-match",
+    "renamed_map": {}
+  },
+  "run_context": {
+    "device": "host",
+    "cpu_governor": "performance",
+    "core_count": 8,
+    "repeat_count": 5,
+    "warmup_count": 1
+  },
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "benchmark-regression",
+      "title": "BM_Decode/1024 regressed",
+      "source_ref": {"source_id": "S1", "locator": "$.benchmarks[0]", "label": "BM_Decode/1024"},
+      "evidence": {
+        "metric": "regression_pct",
+        "value": 25.0,
+        "unit": "percent",
+        "baseline": {"value": 10.0, "label": "before.json"},
+        "delta": {"abs": 2.5, "pct": 25.0, "direction": "increase"}
+      },
+      "diagnosis": "Invalid fixture: missing comparison.baseline_report.",
+      "confidence": 0.9
+    }
+  ],
+  "provenance": {
+    "generated_by": "m0.5-fixture",
+    "version": "1.0.0",
+    "timestamp": "2026-05-25T00:00:00Z"
+  }
+}
+

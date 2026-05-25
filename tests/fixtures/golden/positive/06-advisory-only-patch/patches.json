@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "source_reports": [
+    {
+      "id": "S1",
+      "path": "freeform-report.txt",
+      "source_format": "generic-llm",
+      "parser": "generic-llm",
+      "confidence": 0.3
+    }
+  ],
+  "patches": [
+    {
+      "id": "P001",
+      "finding_id": "F001",
+      "source_ref": {"source_id": "S1", "locator": "paragraph:1", "label": "lookup is slow"},
+      "patch_category": "algorithm-change",
+      "strategy": "index-redesign",
+      "recommendation": {
+        "suggested_locations": ["src/index.c:1"],
+        "idea": "Investigate data structure choice before proposing a diff.",
+        "risk": "medium"
+      },
+      "files_touched": [],
+      "files_touched_policy": {
+        "allowed": false,
+        "reason": "Algorithm change requires human design review.",
+        "risk": "medium"
+      },
+      "expected_impact": {"level": "unknown", "estimate": "not estimated", "confidence": 0.2},
+      "measured_impact": null,
+      "side_effects": {
+        "runtime_memory": "unknown",
+        "binary_size": "unknown",
+        "startup_time": "unknown",
+        "maintainability": "unknown"
+      },
+      "risk": {"level": "medium", "notes": "Low-confidence source report."},
+      "rationale": "The source anchor is not reliable enough for a reviewable diff.",
+      "verification_plan": {
+        "build_cmd": null,
+        "test_cmd": null,
+        "benchmark_cmd": null,
+        "manual_steps": ["Gather deterministic profiler or benchmark evidence."],
+        "required": false
+      },
+      "status": "advisory-only",
+      "validation_status": "not-run"
+    }
+  ],
+  "apply_instructions": "Do not apply automatically; review the advisory.",
+  "provenance": {
+    "generated_by": "m0.5-fixture",
+    "version": "1.0.0",
+    "timestamp": "2026-05-25T00:00:00Z"
+  }
+}
+

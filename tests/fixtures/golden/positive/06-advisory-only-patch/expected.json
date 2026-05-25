@@ -1,0 +1,8 @@
+{
+  "fixture_id": "positive-06",
+  "document": "patches.json",
+  "document_type": "suggestion-patch",
+  "valid": true,
+  "expected_rules": []
+}
+

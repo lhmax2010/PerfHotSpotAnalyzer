@@ -1,0 +1,6 @@
+{
+  "benchmarks": [
+    {"name": "BM_Decode/1024", "real_time": 12.5, "time_unit": "ms"}
+  ]
+}
+

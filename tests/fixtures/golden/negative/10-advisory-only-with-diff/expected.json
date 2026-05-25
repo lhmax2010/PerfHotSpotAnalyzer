@@ -1,0 +1,8 @@
+{
+  "fixture_id": "negative-10",
+  "document": "patches.json",
+  "document_type": "suggestion-patch",
+  "valid": false,
+  "expected_rules": ["json-schema", "per-status-consistency"]
+}
+

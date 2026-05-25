@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["benchmark"],
+  "target": {
+    "name": "freeform-service",
+    "kind": "service",
+    "repo_root": "/repo/demo",
+    "commit": "112233",
+    "build_config": "release",
+    "platform": {"os": "linux", "arch": "x86_64"}
+  },
+  "source_reports": [
+    {
+      "id": "S1",
+      "path": "freeform-report.txt",
+      "source_format": "generic-llm",
+      "parser": "generic-llm",
+      "confidence": 0.3
+    }
+  ],
+  "run_context": {
+    "device": "host",
+    "cpu_governor": "unknown",
+    "core_count": 8,
+    "repeat_count": 1,
+    "warmup_count": 0
+  },
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "benchmark-latency",
+      "title": "Free-form latency complaint",
+      "source_ref": {"source_id": "S1", "locator": "paragraph:1", "label": "lookup is slow"},
+      "evidence": {
+        "metric": "latency_ms",
+        "value": 0.0,
+        "unit": "ms"
+      },
+      "code_anchors": [
+        {
+          "symbol": "maybe_lookup",
+          "file": "src/index.c",
+          "line_start": 1,
+          "line_end": 1,
+          "language": "c",
+          "anchor_confidence": 0.3,
+          "resolution_method": "llm",
+          "evidence": "Free-form text guess; not deterministic."
+        }
+      ],
+      "diagnosis": "Low-confidence free-form input preserved for advisory handling.",
+      "confidence": 0.3
+    }
+  ],
+  "provenance": {
+    "generated_by": "m0.5-fixture",
+    "version": "1.0.0",
+    "timestamp": "2026-05-25T00:00:00Z"
+  }
+}
+

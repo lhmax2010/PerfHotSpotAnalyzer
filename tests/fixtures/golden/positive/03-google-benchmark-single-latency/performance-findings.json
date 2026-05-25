@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["benchmark"],
+  "target": {
+    "name": "lookup-bench",
+    "kind": "benchmark-suite",
+    "repo_root": "/repo/demo",
+    "commit": "fedcba",
+    "build_config": "release",
+    "platform": {"os": "linux", "arch": "x86_64"}
+  },
+  "source_reports": [
+    {
+      "id": "S1",
+      "path": "current.json",
+      "source_format": "google-benchmark",
+      "parser": "structured",
+      "confidence": 0.98
+    }
+  ],
+  "run_context": {
+    "device": "host",
+    "cpu_governor": "performance",
+    "core_count": 8,
+    "repeat_count": 5,
+    "warmup_count": 1
+  },
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "benchmark-latency",
+      "title": "BM_IndexLookup/4096 latency sample",
+      "source_ref": {"source_id": "S1", "locator": "$.benchmarks[0]", "label": "BM_IndexLookup/4096"},
+      "evidence": {
+        "metric": "latency_ms",
+        "value": 3.7,
+        "unit": "ms"
+      },
+      "diagnosis": "Single-report latency evidence; no baseline comparison is available.",
+      "confidence": 0.9
+    }
+  ],
+  "provenance": {
+    "generated_by": "m0.5-fixture",
+    "version": "1.0.0",
+    "timestamp": "2026-05-25T00:00:00Z"
+  }
+}
+

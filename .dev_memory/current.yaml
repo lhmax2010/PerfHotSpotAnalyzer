@@ -1,7 +1,7 @@
 schema_version: 1
-shared_current: m0_schema
-shared_last_completed: m0_schema
-session_count: 1
+shared_current: m0.5_fixtures
+shared_last_completed: m0.5_fixtures
+session_count: 2
 milestones:
   m0_schema:
     status: completed
@@ -9,10 +9,10 @@ milestones:
     last_commit: this-branch-tip
     review_status: pending
   m0.5_fixtures:
-    status: TODO
-    branch: null
-    last_commit: null
-    review_status: not-started
+    status: completed
+    branch: stage/m0.5-fixtures
+    last_commit: this-branch-tip
+    review_status: pending
   a1_x86_perf:
     status: TODO
     branch: null
@@ -65,8 +65,10 @@ lines:
     last_commit: null
     review_status: not-started
 next_steps:
-  - "Wait for M0 review. After merge to main, start M0.5 golden fixtures."
+  - "Wait for M0.5 review. After M0 and M0.5 are merged to main, start A1 and/or B1 from reviewed main."
 blocked_on: null
 notes: |
-  M0 implementation is complete on stage/m0-schema. A and B line pointers are
-  initialized but must not advance until M0 and M0.5 are reviewed.
+  M0.5 implementation is complete on stage/m0.5-fixtures. This branch is based
+  on stage/m0-schema because main had not yet received M0 when the user asked to
+  continue. A and B line pointers are initialized but must not advance until M0
+  and M0.5 are reviewed.
