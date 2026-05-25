@@ -1,0 +1,3 @@
+mode: full
+output_dir: out
+validate_before_output: true

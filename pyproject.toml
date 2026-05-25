@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "perf-hotspot-analyzer"
+version = "0.1.0"
+description = "Performance hotspot analysis and suggestion patch skill suite."
+requires-python = ">=3.11"
+dependencies = [
+  "jsonschema>=4.18",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+include = [
+  "common*",
+  "cli*",
+  "perf_hotspot_analyzer*",
+  "perf_suggestion_patch*",
+  "perf_optimization_pipeline*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

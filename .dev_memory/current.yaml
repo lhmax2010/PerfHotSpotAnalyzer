@@ -1,0 +1,72 @@
+schema_version: 1
+shared_current: m0_schema
+shared_last_completed: m0_schema
+session_count: 1
+milestones:
+  m0_schema:
+    status: completed
+    branch: stage/m0-schema
+    last_commit: this-branch-tip
+    review_status: pending
+  m0.5_fixtures:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  a1_x86_perf:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  a2_binary_size:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  a3_tizen_symbolize:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  b1_ingest_anchor:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  b2_benchmark_folded:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  b3_patch_gen:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  mfinal_workflow:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+  minteg_integration:
+    status: TODO
+    branch: null
+    last_commit: null
+    review_status: not-started
+lines:
+  A:
+    current: a1_x86_perf
+    last_completed: null
+    last_commit: null
+    review_status: not-started
+  B:
+    current: b1_ingest_anchor
+    last_completed: null
+    last_commit: null
+    review_status: not-started
+next_steps:
+  - "Wait for M0 review. After merge to main, start M0.5 golden fixtures."
+blocked_on: null
+notes: |
+  M0 implementation is complete on stage/m0-schema. A and B line pointers are
+  initialized but must not advance until M0 and M0.5 are reviewed.

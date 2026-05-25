@@ -1,0 +1,785 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/lhmax2010/PerfHotSpotAnalyzer/schemas/performance-findings.schema.json",
+  "title": "performance-findings",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "report_types",
+    "target",
+    "source_reports",
+    "run_context",
+    "findings",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "report_types": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "hotspot-profile",
+          "binary-size",
+          "benchmark"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "name",
+        "kind",
+        "platform"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "binary",
+            "process",
+            "service",
+            "app",
+            "benchmark-suite"
+          ]
+        },
+        "command": {
+          "type": "string"
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "build_id": {
+          "type": "string"
+        },
+        "build_config": {
+          "enum": [
+            "release",
+            "debug",
+            "gbs"
+          ]
+        },
+        "platform": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "os",
+            "arch"
+          ],
+          "properties": {
+            "os": {
+              "enum": [
+                "linux",
+                "tizen"
+              ]
+            },
+            "arch": {
+              "enum": [
+                "armv7",
+                "aarch64",
+                "x86_64"
+              ]
+            },
+            "kernel": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "source_reports": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "source_format",
+          "parser",
+          "confidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string"
+          },
+          "source_format": {
+            "enum": [
+              "analyzer-json",
+              "google-benchmark",
+              "folded-stacks",
+              "generic-llm",
+              "perf-script",
+              "external"
+            ]
+          },
+          "parser": {
+            "type": "string",
+            "minLength": 1
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "current_report": {
+          "type": "string"
+        },
+        "baseline_report": {
+          "type": "string"
+        },
+        "compare_method": {
+          "enum": [
+            "name-match",
+            "manual-map"
+          ]
+        },
+        "renamed_map": {
+          "type": "object"
+        }
+      }
+    },
+    "run_context": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "device": {
+          "enum": [
+            "emulator",
+            "target-board",
+            "host"
+          ]
+        },
+        "cpu_governor": {
+          "enum": [
+            "performance",
+            "ondemand",
+            "schedutil",
+            "unknown"
+          ]
+        },
+        "core_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "repeat_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "warmup_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "profiling": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "tool"
+      ],
+      "properties": {
+        "tool": {
+          "enum": [
+            "perf",
+            "external"
+          ]
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "callgraph_mode": {
+          "enum": [
+            "fp",
+            "dwarf",
+            "none"
+          ]
+        },
+        "symfs": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tizen": {
+      "type": "object"
+    },
+    "summary_metrics": {
+      "type": "object"
+    },
+    "findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "findings": {
+            "contains": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "function-hotspot"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "profiling"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "findings": {
+            "contains": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "benchmark-regression"
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "comparison"
+        ],
+        "properties": {
+          "comparison": {
+            "required": [
+              "baseline_report"
+            ],
+            "properties": {
+              "baseline_report": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "generated_by",
+        "version",
+        "timestamp"
+      ],
+      "properties": {
+        "generated_by": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      }
+    },
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "source_id"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "threshold": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "value",
+        "reason"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "absolute-bytes",
+            "section-ratio",
+            "top-n",
+            "user-budget"
+          ]
+        },
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "value",
+        "label"
+      ],
+      "properties": {
+        "value": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "delta": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "abs",
+        "pct",
+        "direction"
+      ],
+      "properties": {
+        "abs": {
+          "type": "number"
+        },
+        "pct": {
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "increase",
+            "decrease"
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "metric": {
+          "enum": [
+            "self_cpu_pct",
+            "children_pct",
+            "section_bytes",
+            "regression_pct",
+            "latency_ms"
+          ]
+        },
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "enum": [
+            "percent",
+            "bytes",
+            "ms"
+          ]
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "callers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "callees": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "section": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "symbol_or_object": {
+          "type": "string"
+        },
+        "baseline": {
+          "$ref": "#/$defs/baseline"
+        },
+        "delta": {
+          "$ref": "#/$defs/delta"
+        },
+        "threshold": {
+          "$ref": "#/$defs/threshold"
+        }
+      }
+    },
+    "code_anchor": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "file",
+        "anchor_confidence",
+        "resolution_method"
+      ],
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "dso": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "line_start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "line_end": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "language": {
+          "type": "string"
+        },
+        "anchor_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "resolution_method": {
+          "enum": [
+            "dwarf",
+            "addr2line",
+            "ctags",
+            "compile-db",
+            "grep",
+            "bench-name-map",
+            "llm"
+          ]
+        },
+        "evidence": {
+          "type": "string"
+        }
+      }
+    },
+    "candidate_optimization": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "strategy",
+        "expected_impact",
+        "confidence",
+        "risk",
+        "rationale"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "expected_impact": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "risk": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "source_ref",
+        "evidence",
+        "confidence"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "function-hotspot",
+            "binary-size-large",
+            "binary-size-regression",
+            "benchmark-regression",
+            "benchmark-latency"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ref": {
+          "$ref": "#/$defs/source_ref"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "code_anchors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/code_anchor"
+          }
+        },
+        "bottleneck_class": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "diagnosis": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "candidate_optimizations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate_optimization"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "function-hotspot"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "code_anchors"
+            ],
+            "properties": {
+              "evidence": {
+                "required": [
+                  "metric",
+                  "value",
+                  "rank"
+                ],
+                "properties": {
+                  "metric": {
+                    "enum": [
+                      "self_cpu_pct",
+                      "children_pct"
+                    ]
+                  }
+                }
+              },
+              "code_anchors": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "binary-size-large"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "required": [
+                  "metric",
+                  "value",
+                  "section",
+                  "file",
+                  "threshold"
+                ],
+                "properties": {
+                  "metric": {
+                    "const": "section_bytes"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "binary-size-regression"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "required": [
+                  "section",
+                  "file",
+                  "baseline",
+                  "delta"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "benchmark-regression"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "required": [
+                  "metric",
+                  "baseline",
+                  "delta"
+                ],
+                "properties": {
+                  "metric": {
+                    "enum": [
+                      "regression_pct",
+                      "latency_ms"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "benchmark-latency"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "required": [
+                  "metric",
+                  "value"
+                ],
+                "properties": {
+                  "metric": {
+                    "const": "latency_ms"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
