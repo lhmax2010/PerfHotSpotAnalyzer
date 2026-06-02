@@ -75,5 +75,7 @@ def test_folded_stacks_e2e_writes_advisory_report(tmp_path: Path) -> None:
 
     assert result.run_report["input"]["source_formats"] == ["folded-stacks"]
     assert result.run_report["findings"]["by_kind"] == {"function-hotspot": 2}
-    assert result.run_report["gate_decisions"][0]["reason"] == "actionability=informational"
+    assert result.run_report["gate_decisions"][0]["reason"] == (
+        "actionability=informational; effective_anchor=null"
+    )
     assert all("diff" not in patch for patch in result.suggestion_patch["patches"])

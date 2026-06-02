@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import time
 import hashlib
+import importlib.util
 import re
+import sys
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -74,6 +76,7 @@ class AnalysisResult:
 
     patches_path: Path
     run_report_path: Path
+    patch_report_path: Path | None
     suggestion_patch: dict[str, Any]
     run_report: dict[str, Any]
 
@@ -807,23 +810,24 @@ def run_ingested_report(
 
         step_started = time.monotonic()
         active_tracer.info("gate", "start", findings=len(report.findings))
-        gate_decisions = gate_findings(anchored_findings)
+        make_patch = _load_make_patch_module()
+        patch_result = make_patch.build_patch_document(
+            performance_report=report.document,
+            output_dir=output_path,
+            generated_at=started_at,
+        )
+        gate_decisions = patch_result.gate_decisions
         step_ms["gate"] = _elapsed_ms(step_started)
         active_tracer.info(
             "gate",
             "success",
             advisory_only=sum(
-                1 for decision in gate_decisions if decision.status == "advisory-only"
+                1 for decision in gate_decisions if decision["decision"] == "advisory-only"
             ),
         )
 
         step_started = time.monotonic()
-        suggestion_patch = build_suggestion_patch(
-            report,
-            anchored_findings,
-            gate_decisions,
-            generated_at=started_at,
-        )
+        suggestion_patch = patch_result.suggestion_patch
         patches_path = output_path / "patches.json"
         patches_path.write_text(
             json.dumps(suggestion_patch, indent=2, sort_keys=True) + "\n",
@@ -852,6 +856,7 @@ def run_ingested_report(
         return AnalysisResult(
             patches_path=patches_path,
             run_report_path=run_report_path,
+            patch_report_path=output_path / "patch-report.md",
             suggestion_patch=suggestion_patch,
             run_report=run_report,
         )
@@ -910,7 +915,7 @@ def build_run_report(
     *,
     report: IngestedReport,
     anchored_findings: list[AnchoredFinding],
-    gate_decisions: list[GateDecision],
+    gate_decisions: list[Any],
     trace_id: str,
     started_at: str,
     total_ms: int,
@@ -945,20 +950,42 @@ def build_run_report(
                 anchored_findings
             ),
         },
-        "gate_decisions": [decision.to_record() for decision in gate_decisions],
-        "patches": {
-            "diff-ready": 0,
-            "needs-review": 0,
-            "advisory-only": len(gate_decisions),
-        },
+        "gate_decisions": [_gate_record(decision) for decision in gate_decisions],
+        "patches": _patch_status_counts(gate_decisions),
         "degradations": [
-            decision.to_record()
+            _gate_record(decision)
             for decision in gate_decisions
-            if decision.reason != "b1-advisory-only"
+            if _gate_record(decision)["decision"] == "advisory-only"
         ],
         "exit_status": exit_status,
         "errors": errors,
     }
+
+
+def _load_make_patch_module():
+    script_path = Path(__file__).resolve().parent / "make_patch.py"
+    spec = importlib.util.spec_from_file_location("perf_suggestion_patch_make_patch", script_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load make_patch module from {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _gate_record(decision: Any) -> dict[str, Any]:
+    if isinstance(decision, dict):
+        return decision
+    return decision.to_record()
+
+
+def _patch_status_counts(gate_decisions: list[Any]) -> dict[str, int]:
+    counts = {"diff-ready": 0, "needs-review": 0, "advisory-only": 0}
+    for decision in gate_decisions:
+        status = _gate_record(decision).get("decision")
+        if status in counts:
+            counts[status] += 1
+    return counts
 
 
 def _with_scored_confidence(anchor: dict[str, Any] | None) -> dict[str, Any] | None:

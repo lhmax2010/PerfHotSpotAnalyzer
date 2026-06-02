@@ -157,7 +157,7 @@ def _build_patch(
         benchmark_cmd=benchmark_cmd,
     )
 
-    reasons = _basic_advisory_reasons(finding, chosen_anchor)
+    reasons = _advisory_reasons(finding, chosen_anchor, category, candidate)
     if reasons:
         patch = _advisory_patch(base, finding, chosen_anchor, reasons)
         return patch, _gate_decision(finding, patch, chosen_anchor, reasons)
@@ -183,16 +183,17 @@ def _build_patch(
         return patch, _gate_decision(finding, patch, chosen_anchor, reasons)
 
     patch = deepcopy(base)
+    status, status_reason = _diff_status(category, candidate, files_policy)
     patch.update(
         {
             "chosen_anchor": chosen_anchor,
             "diff": diff_text,
             "files_touched": [relative_file],
             "files_touched_policy": files_policy,
-            "status": "diff-ready",
+            "status": status,
         }
     )
-    return patch, _gate_decision(finding, patch, chosen_anchor, [])
+    return patch, _gate_decision(finding, patch, chosen_anchor, [status_reason])
 
 
 def evaluate_files_touched_policy(files: list[str], patch_category: str) -> dict[str, Any]:
@@ -305,9 +306,11 @@ def _advisory_patch(
     return patch
 
 
-def _basic_advisory_reasons(
+def _advisory_reasons(
     finding: dict[str, Any],
     chosen_anchor: dict[str, Any] | None,
+    patch_category: str,
+    candidate: dict[str, Any],
 ) -> list[str]:
     reasons = []
     if finding.get("actionability") != "actionable":
@@ -318,7 +321,66 @@ def _basic_advisory_reasons(
         reasons.append(f"effective_anchor_confidence={_anchor_confidence(chosen_anchor)} < 0.70")
     if finding.get("kind") == "benchmark-latency" and not finding.get("perf_budget"):
         reasons.append("benchmark-latency-without-perf-budget")
+    if (
+        finding.get("source_format") == "generic-llm"
+        and not _generic_llm_anchor_can_continue(chosen_anchor)
+    ):
+        reasons.append("generic-llm-default-advisory")
+    if patch_category == "api/semantic-change":
+        reasons.append("patch_category=api/semantic-change")
+    if patch_category in {"algorithm-change", "concurrency-change"}:
+        reasons.append(f"patch_category={patch_category}")
+    if patch_category == "allocation-reduction" and _allocation_is_shared(candidate, finding):
+        reasons.append("allocation-reduction-shared-ownership")
     return reasons
+
+
+def _diff_status(
+    patch_category: str,
+    candidate: dict[str, Any],
+    files_policy: dict[str, Any],
+) -> tuple[str, str]:
+    risk = str(candidate.get("risk", files_policy.get("risk", "medium"))).lower()
+    if patch_category == "build-flag":
+        return "needs-review", "needs-review: build-flag may affect all files in package"
+    if risk not in {"low", "none"} or files_policy.get("risk") not in {"low", "none"}:
+        return "needs-review", "needs-review: medium-or-higher risk"
+    return "diff-ready", "diff-ready"
+
+
+def _allocation_is_shared(candidate: dict[str, Any], finding: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(value)
+        for value in [
+            candidate.get("strategy", ""),
+            candidate.get("rationale", ""),
+            finding.get("diagnosis", ""),
+            finding.get("title", ""),
+        ]
+    ).lower()
+    risky_markers = (
+        "cache",
+        "object pool",
+        "pool",
+        "shared",
+        "ownership",
+        "lifetime",
+        "thread",
+        "global",
+    )
+    if any(marker in text for marker in risky_markers):
+        return True
+    local_markers = ("reserve", "prealloc", "pre-alloc", "local", "avoid repeated malloc")
+    return not any(marker in text for marker in local_markers)
+
+
+def _generic_llm_anchor_can_continue(anchor: dict[str, Any] | None) -> bool:
+    if anchor is None:
+        return False
+    return (
+        anchor.get("resolution_method") in {"dwarf", "addr2line", "ctags", "compile-db"}
+        and _anchor_confidence(anchor) >= ANCHOR_GATE_THRESHOLD
+    )
 
 
 def _generate_unified_diff(

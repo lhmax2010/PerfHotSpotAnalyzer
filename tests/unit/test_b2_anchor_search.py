@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -83,7 +84,18 @@ def test_anchor_search_compile_db_upgrades_folded_hotspot_to_actionable(tmp_path
     assert anchor["resolution_method"] == "compile-db"
     assert anchor["anchor_confidence"] == 0.75
     assert anchor["file"] == "src/hot.c"
-    assert decision["reason"] == "b1-advisory-only"
+    assert decision["reason"] == "diff-ready"
+    patch = result.suggestion_patch["patches"][0]
+    assert patch["status"] == "diff-ready"
+    patch_file = tmp_path / "generated.patch"
+    patch_file.write_text(patch["diff"], encoding="utf-8")
+    subprocess.run(
+        ["git", "apply", "--check", str(patch_file)],
+        cwd=repo,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
 
 
 def test_anchor_search_generic_llm_deterministic_anchor_can_continue(tmp_path: Path) -> None:

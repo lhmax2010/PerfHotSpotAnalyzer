@@ -31,11 +31,11 @@ def load_ingest_module():
     [
         (
             "01-hotspot-binary-size-mixed",
-            ["b1-advisory-only", "effective_anchor=null"],
+            ["anchor-file-unavailable", "effective_anchor=null"],
         ),
-        ("15-attribution-third-party-owned", ["b1-advisory-only"]),
-        ("16-attribution-no-owned-not-actionable", ["actionability=not-actionable"]),
-        ("17-effective-anchor-prefers-attribution", ["b1-advisory-only"]),
+        ("15-attribution-third-party-owned", ["anchor-file-unavailable"]),
+        ("16-attribution-no-owned-not-actionable", ["actionability=not-actionable; effective_anchor=null"]),
+        ("17-effective-anchor-prefers-attribution", ["anchor-file-unavailable"]),
     ],
 )
 def test_b1_analyzer_json_e2e_advisory_outputs(
@@ -82,7 +82,7 @@ def test_b1_attribution_anchor_becomes_effective_anchor(tmp_path: Path) -> None:
     assert decision["effective_anchor"]["symbol"] == "owned_emit_many"
     assert decision["effective_anchor"]["file"] == "src/signal_adapter.c"
     assert decision["effective_anchor"]["anchor_confidence"] == 0.80
-    assert result.suggestion_patch["patches"][0]["chosen_anchor"]["symbol"] == "owned_emit_many"
+    assert result.suggestion_patch["patches"][0]["status"] == "advisory-only"
 
 
 def test_b1_fixture_06_advisory_contract_baseline() -> None:

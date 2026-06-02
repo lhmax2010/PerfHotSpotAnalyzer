@@ -209,7 +209,7 @@ def test_build_flag_policy_marks_package_wide_blast_radius(tmp_path: Path) -> No
     )
 
     patch = result.suggestion_patch["patches"][0]
-    assert patch["status"] == "diff-ready"
+    assert patch["status"] == "needs-review"
     assert patch["patch_category"] == "build-flag"
     assert "may affect all files in package" in patch["files_touched_policy"]["reason"]
     assert patch["files_touched_policy"]["risk"] == "medium"
@@ -237,3 +237,65 @@ def test_deny_list_path_is_advisory_without_diff(tmp_path: Path) -> None:
     assert "diff" not in patch
     assert patch["files_touched_policy"]["allowed"] is False
     assert "deny-list" in patch["files_touched_policy"]["reason"]
+
+
+def test_allocation_reduction_local_reserve_can_emit_diff(tmp_path: Path) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    report = performance_report(repo)
+    candidate = report["findings"][0]["candidate_optimizations"][0]
+    candidate["patch_category"] = "allocation-reduction"
+    candidate["strategy"] = "reserve-local-vector"
+    candidate["rationale"] = "Pure local reserve avoids repeated allocations."
+    candidate["risk"] = "low"
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    patch = result.suggestion_patch["patches"][0]
+    assert patch["patch_category"] == "allocation-reduction"
+    assert patch["status"] == "diff-ready"
+    assert "diff" in patch
+
+
+def test_allocation_reduction_shared_pool_is_advisory(tmp_path: Path) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    report = performance_report(repo)
+    candidate = report["findings"][0]["candidate_optimizations"][0]
+    candidate["patch_category"] = "allocation-reduction"
+    candidate["strategy"] = "shared-object-pool"
+    candidate["rationale"] = "Use a shared cache with object pool ownership."
+    candidate["risk"] = "high"
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    patch = result.suggestion_patch["patches"][0]
+    assert patch["status"] == "advisory-only"
+    assert "diff" not in patch
+    assert result.gate_decisions[0]["reason"] == "allocation-reduction-shared-ownership"
+
+
+def test_api_semantic_change_never_emits_diff(tmp_path: Path) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    report = performance_report(repo)
+    report["findings"][0]["candidate_optimizations"][0]["patch_category"] = "api/semantic-change"
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    patch = result.suggestion_patch["patches"][0]
+    assert patch["status"] == "advisory-only"
+    assert "diff" not in patch
+    assert result.gate_decisions[0]["reason"] == "patch_category=api/semantic-change"
