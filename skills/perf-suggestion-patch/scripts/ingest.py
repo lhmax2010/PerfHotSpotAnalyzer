@@ -19,7 +19,7 @@ ANCHOR_GATE_THRESHOLD = 0.70
 
 @dataclass(frozen=True)
 class IngestedReport:
-    """Validated analyzer-json report with source metadata preserved."""
+    """Validated performance-findings report with source metadata preserved."""
 
     path: Path
     document: dict[str, Any]
@@ -68,7 +68,7 @@ class GateDecision:
 
 @dataclass(frozen=True)
 class AnalysisResult:
-    """Paths and documents produced by the B1 analyzer-json run."""
+    """Paths and documents produced by an ingest run."""
 
     patches_path: Path
     run_report_path: Path
@@ -104,6 +104,146 @@ def load_analyzer_json(report_path: str | Path) -> IngestedReport:
         source_reports=list(document.get("source_reports", [])),
         findings=list(document.get("findings", [])),
     )
+
+
+def load_google_benchmark(
+    report_path: str | Path,
+    *,
+    baseline_report: str | Path | None = None,
+    repo_root: str | Path | None = None,
+    renamed_map: dict[str, str] | None = None,
+    target_name: str | None = None,
+) -> IngestedReport:
+    """Normalize Google Benchmark JSON into a performance-findings report."""
+
+    path = Path(report_path)
+    current_document = schema_validate.load_json(path)
+    baseline_path = Path(baseline_report) if baseline_report is not None else None
+    baseline_document = (
+        schema_validate.load_json(baseline_path) if baseline_path is not None else None
+    )
+    document = normalize_google_benchmark(
+        current_document,
+        current_path=path,
+        baseline_document=baseline_document,
+        baseline_path=baseline_path,
+        repo_root=repo_root,
+        renamed_map=renamed_map or {},
+        target_name=target_name,
+    )
+    schema_validate.validate_document(
+        document,
+        document_type=schema_validate.PERFORMANCE_FINDINGS,
+        skill="perf-suggestion-patch",
+    )
+    return IngestedReport(
+        path=path,
+        document=document,
+        source_reports=list(document.get("source_reports", [])),
+        findings=list(document.get("findings", [])),
+    )
+
+
+def normalize_google_benchmark(
+    current_document: dict[str, Any],
+    *,
+    current_path: Path,
+    baseline_document: dict[str, Any] | None = None,
+    baseline_path: Path | None = None,
+    repo_root: str | Path | None = None,
+    renamed_map: dict[str, str] | None = None,
+    target_name: str | None = None,
+) -> dict[str, Any]:
+    """Build a canonical performance-findings document from GB JSON."""
+
+    renamed = renamed_map or {}
+    current_benchmarks = _google_benchmark_entries(current_document)
+    baseline_benchmarks = (
+        _google_benchmark_entries(baseline_document) if baseline_document else []
+    )
+    baseline_by_name = {str(item.get("name")): item for item in baseline_benchmarks}
+    source_reports = [
+        {
+            "id": "S1",
+            "path": str(current_path),
+            "source_format": "google-benchmark",
+            "parser": "structured",
+            "confidence": 0.98,
+        }
+    ]
+    if baseline_path is not None:
+        source_reports.append(
+            {
+                "id": "S2",
+                "path": str(baseline_path),
+                "source_format": "google-benchmark",
+                "parser": "structured",
+                "confidence": 0.98,
+            }
+        )
+
+    findings = []
+    for index, benchmark in enumerate(current_benchmarks, start=1):
+        name = str(benchmark["name"])
+        current_ms = _benchmark_latency_ms(benchmark)
+        if baseline_document is not None:
+            baseline_name = _baseline_name_for(name, renamed)
+            baseline = baseline_by_name.get(baseline_name)
+            if baseline is None:
+                continue
+            baseline_ms = _benchmark_latency_ms(baseline)
+            findings.append(
+                _build_benchmark_regression_finding(
+                    index=index,
+                    name=name,
+                    baseline_name=baseline_name,
+                    current_ms=current_ms,
+                    baseline_ms=baseline_ms,
+                    current_path=current_path,
+                    baseline_path=baseline_path,
+                )
+            )
+        else:
+            findings.append(
+                _build_benchmark_latency_finding(
+                    index=index,
+                    name=name,
+                    current_ms=current_ms,
+                )
+            )
+
+    document = {
+        "schema_version": "1.0",
+        "report_types": ["benchmark"],
+        "target": {
+            "name": target_name or current_path.stem,
+            "kind": "benchmark-suite",
+            "repo_root": str(repo_root) if repo_root is not None else "",
+            "platform": {"os": "linux", "arch": "x86_64"},
+        },
+        "source_reports": source_reports,
+        "run_context": {
+            "device": "host",
+            "cpu_governor": "unknown",
+            "core_count": 1,
+            "repeat_count": 1,
+            "warmup_count": 0,
+        },
+        "findings": findings,
+        "provenance": {
+            "generated_by": "perf-suggestion-patch.ingest",
+            "version": "1.0.0-b2",
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+    }
+    if baseline_document is not None and baseline_path is not None:
+        document["comparison"] = {
+            "current_report": str(current_path),
+            "baseline_report": str(baseline_path),
+            "compare_method": "manual-map" if renamed else "name-match",
+            "renamed_map": renamed,
+        }
+    return document
 
 
 def score_anchor_confidence(anchor: dict[str, Any] | None) -> float | None:
@@ -196,6 +336,96 @@ def run_analyzer_json(
 ) -> AnalysisResult:
     """Run the B1 analyzer-json pipeline and write validated outputs."""
 
+    report = load_analyzer_json(report_path)
+    return run_ingested_report(
+        report,
+        output_dir,
+        verbose=verbose,
+        tracer=tracer,
+    )
+
+
+def run_google_benchmark(
+    report_path: str | Path,
+    output_dir: str | Path,
+    *,
+    baseline_report: str | Path | None = None,
+    repo_root: str | Path | None = None,
+    renamed_map: dict[str, str] | None = None,
+    target_name: str | None = None,
+    verbose: bool = False,
+    tracer: TraceLogger | None = None,
+) -> AnalysisResult:
+    """Run the B2 Google Benchmark adapter and advisory output path."""
+
+    report = load_google_benchmark(
+        report_path,
+        baseline_report=baseline_report,
+        repo_root=repo_root,
+        renamed_map=renamed_map,
+        target_name=target_name,
+    )
+    return run_ingested_report(
+        report,
+        output_dir,
+        verbose=verbose,
+        tracer=tracer,
+    )
+
+
+def run_ingest(
+    report_path: str | Path,
+    output_dir: str | Path,
+    *,
+    input_format: str = "auto",
+    baseline_report: str | Path | None = None,
+    repo_root: str | Path | None = None,
+    renamed_map: dict[str, str] | None = None,
+    target_name: str | None = None,
+    verbose: bool = False,
+) -> AnalysisResult:
+    """Dispatch an input report to a B2 adapter."""
+
+    detected_format = (
+        detect_input_format(report_path) if input_format == "auto" else input_format
+    )
+    if detected_format == "analyzer-json":
+        return run_analyzer_json(report_path, output_dir, verbose=verbose)
+    if detected_format == "google-benchmark":
+        return run_google_benchmark(
+            report_path,
+            output_dir,
+            baseline_report=baseline_report,
+            repo_root=repo_root,
+            renamed_map=renamed_map,
+            target_name=target_name,
+            verbose=verbose,
+        )
+    raise ValueError(f"unsupported input format for B2: {detected_format}")
+
+
+def detect_input_format(report_path: str | Path) -> str:
+    """Detect the adapter for a report path."""
+
+    path = Path(report_path)
+    if path.suffix.lower() == ".json":
+        document = schema_validate.load_json(path)
+        if isinstance(document, dict) and "benchmarks" in document:
+            return "google-benchmark"
+        if isinstance(document, dict) and "findings" in document:
+            return "analyzer-json"
+    return "generic-llm"
+
+
+def run_ingested_report(
+    report: IngestedReport,
+    output_dir: str | Path,
+    *,
+    verbose: bool = False,
+    tracer: TraceLogger | None = None,
+) -> AnalysisResult:
+    """Run anchor, gate, and advisory report generation for a normalized report."""
+
     started = time.monotonic()
     started_at = datetime.now(UTC).isoformat()
     output_path = Path(output_dir)
@@ -211,15 +441,14 @@ def run_analyzer_json(
 
     try:
         step_started = time.monotonic()
-        active_tracer.info("ingest", "start", document=str(report_path))
-        report = load_analyzer_json(report_path)
-        step_ms["ingest"] = _elapsed_ms(step_started)
         active_tracer.info(
             "ingest",
             "success",
+            document=str(report.path),
             findings=len(report.findings),
             source_formats=report.source_formats,
         )
+        step_ms["ingest"] = _elapsed_ms(step_started)
 
         step_started = time.monotonic()
         active_tracer.info("anchor", "start", findings=len(report.findings))
@@ -375,18 +604,21 @@ def _gate_finding(anchored: AnchoredFinding) -> GateDecision:
 
     if actionability != "actionable":
         reason = f"actionability={actionability}"
-    elif anchored.effective_anchor is None:
-        reason = "effective_anchor=null"
-    elif (
-        anchored.anchor_confidence is None
-        or anchored.anchor_confidence < ANCHOR_GATE_THRESHOLD
-    ):
-        reason = (
-            f"effective_anchor_confidence={anchored.anchor_confidence} "
-            f"< {ANCHOR_GATE_THRESHOLD:.2f}"
-        )
     else:
-        reason = "b1-advisory-only"
+        reasons = []
+        if anchored.effective_anchor is None:
+            reasons.append("effective_anchor=null")
+        elif (
+            anchored.anchor_confidence is None
+            or anchored.anchor_confidence < ANCHOR_GATE_THRESHOLD
+        ):
+            reasons.append(
+                f"effective_anchor_confidence={anchored.anchor_confidence} "
+                f"< {ANCHOR_GATE_THRESHOLD:.2f}"
+            )
+        if finding.get("kind") == "benchmark-latency" and not finding.get("perf_budget"):
+            reasons.append("benchmark-latency-without-perf-budget")
+        reason = "; ".join(reasons) if reasons else "b1-advisory-only"
 
     return GateDecision(
         finding_id=finding_id,
@@ -528,3 +760,128 @@ def _anchor_confidence_distribution(
 
 def _elapsed_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
+
+
+def _google_benchmark_entries(document: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(document, dict):
+        raise ValueError("Google Benchmark report must be a JSON object")
+    benchmarks = document.get("benchmarks")
+    if not isinstance(benchmarks, list) or not benchmarks:
+        raise ValueError("Google Benchmark report must contain a non-empty benchmarks array")
+
+    entries = []
+    for benchmark in benchmarks:
+        if not isinstance(benchmark, dict):
+            continue
+        if benchmark.get("run_type") == "aggregate":
+            continue
+        if not benchmark.get("name"):
+            continue
+        if "real_time" not in benchmark and "cpu_time" not in benchmark:
+            continue
+        entries.append(benchmark)
+    if not entries:
+        raise ValueError("Google Benchmark report has no concrete benchmark entries")
+    return entries
+
+
+def _benchmark_latency_ms(benchmark: dict[str, Any]) -> float:
+    value = benchmark.get("real_time", benchmark.get("cpu_time"))
+    if not isinstance(value, int | float):
+        raise ValueError(f"benchmark {benchmark.get('name')!r} has no numeric time")
+    unit = str(benchmark.get("time_unit", "ns"))
+    scale = {
+        "ns": 0.000001,
+        "us": 0.001,
+        "ms": 1.0,
+        "s": 1000.0,
+    }.get(unit)
+    if scale is None:
+        raise ValueError(f"unsupported Google Benchmark time_unit: {unit}")
+    return float(value) * scale
+
+
+def _baseline_name_for(current_name: str, renamed_map: dict[str, str]) -> str:
+    if current_name in renamed_map:
+        return renamed_map[current_name]
+    for baseline_name, mapped_current in renamed_map.items():
+        if mapped_current == current_name:
+            return baseline_name
+    return current_name
+
+
+def _build_benchmark_regression_finding(
+    *,
+    index: int,
+    name: str,
+    baseline_name: str,
+    current_ms: float,
+    baseline_ms: float,
+    current_path: Path,
+    baseline_path: Path | None,
+) -> dict[str, Any]:
+    if baseline_ms == 0:
+        raise ValueError(f"baseline benchmark {baseline_name!r} has zero latency")
+    delta_ms = current_ms - baseline_ms
+    delta_pct = (delta_ms / baseline_ms) * 100.0
+    direction = "increase" if delta_ms >= 0 else "decrease"
+    return {
+        "id": f"F{index:03d}",
+        "kind": "benchmark-regression",
+        "title": f"{name} changed by {delta_pct:.1f}%",
+        "source_ref": {
+            "source_id": "S1",
+            "locator": f"$.benchmarks[{index - 1}]",
+            "label": name,
+        },
+        "ownership": "owned",
+        "actionability": "actionable",
+        "evidence": {
+            "metric": "regression_pct",
+            "value": round(delta_pct, 6),
+            "unit": "percent",
+            "baseline": {
+                "value": round(baseline_ms, 6),
+                "label": str(baseline_path) if baseline_path is not None else baseline_name,
+            },
+            "delta": {
+                "abs": round(abs(delta_ms), 6),
+                "pct": round(delta_pct, 6),
+                "direction": direction,
+            },
+            "current": {
+                "value": round(current_ms, 6),
+                "label": str(current_path),
+            },
+            "baseline_name": baseline_name,
+        },
+        "diagnosis": "Google Benchmark before/after comparison changed latency.",
+        "confidence": 0.90,
+    }
+
+
+def _build_benchmark_latency_finding(
+    *,
+    index: int,
+    name: str,
+    current_ms: float,
+) -> dict[str, Any]:
+    return {
+        "id": f"F{index:03d}",
+        "kind": "benchmark-latency",
+        "title": f"{name} latency sample",
+        "source_ref": {
+            "source_id": "S1",
+            "locator": f"$.benchmarks[{index - 1}]",
+            "label": name,
+        },
+        "ownership": "owned",
+        "actionability": "actionable",
+        "evidence": {
+            "metric": "latency_ms",
+            "value": round(current_ms, 6),
+            "unit": "ms",
+        },
+        "diagnosis": "Single Google Benchmark report; no baseline comparison is available.",
+        "confidence": 0.90,
+    }
