@@ -1,7 +1,7 @@
 schema_version: 1
 shared_current: m0.5_fixtures
 shared_last_completed: m0.5_fixtures
-session_count: 5
+session_count: 6
 milestones:
   m0_schema:
     status: completed
@@ -39,10 +39,10 @@ milestones:
     last_commit: tag:stage-b2-benchmark-folded-done
     review_status: pending
   b3_patch_gen:
-    status: TODO
-    branch: null
-    last_commit: null
-    review_status: not-started
+    status: completed
+    branch: stage/b3-patch-gen
+    last_commit: tag:stage-b3-patch-gen-done
+    review_status: pending
   mfinal_workflow:
     status: TODO
     branch: null
@@ -60,14 +60,14 @@ lines:
     last_commit: null
     review_status: not-started
   B:
-    current: b3_patch_gen
-    last_completed: b2_benchmark_folded
-    last_commit: tag:stage-b2-benchmark-folded-done
+    current: mfinal_workflow
+    last_completed: b3_patch_gen
+    last_commit: tag:stage-b3-patch-gen-done
     review_status: pending
 next_steps:
-  - "Wait for B2 benchmark/folded/generic review. Do not continue to B3 until B2 is reviewed."
+  - "Wait for B3 patch-generation review. Do not continue to M-final until B3 is reviewed."
 blocked_on: null
 notes: |
-  B2 is implemented on stage/b2-benchmark-folded-generic from the B1 branch.
-  Google Benchmark, folded-stacks, generic-llm prompt handoff, and deterministic
-  repo-root anchor search are covered. B3 patch generation has not started.
+  B3 is implemented on stage/b3-patch-gen from the B2 branch. Patch generation,
+  full Gate status selection, files_touched_policy, and patch-report.md are
+  covered. M-final has not started.

@@ -1,0 +1,38 @@
+patches:
+  - id: p001
+    title: "Implement patch generator"
+    commit: "12bc521"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/make_patch.py"
+      - "tests/unit/test_b3_make_patch.py"
+    rationale: "B3 requires atomic unified diff generation with chosen_anchor from schema_validate.derive_effective_anchor."
+    test_commit: "12bc521"
+  - id: p002
+    title: "Enforce file touched policy"
+    commit: "414f022"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/make_patch.py"
+      - "tests/unit/test_b3_make_patch.py"
+    rationale: "B3 requires DESIGN file allow/deny policy and build-flag blast-radius metadata."
+    test_commit: "414f022"
+  - id: p003
+    title: "Implement full status Gate"
+    commit: "2f3cbf2"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "skills/perf-suggestion-patch/scripts/make_patch.py"
+      - "tests/functional/test_b1_analyzer_json.py"
+      - "tests/unit/test_b2_anchor_search.py"
+      - "tests/unit/test_b2_folded_stacks.py"
+      - "tests/unit/test_b3_make_patch.py"
+    rationale: "B3 requires diff-ready, needs-review, and advisory-only status selection through the full Gate."
+    test_commit: "2f3cbf2"
+  - id: p004
+    title: "Render patch report"
+    commit: "ee431b1"
+    files_changed:
+      - "cli/perf_suggestion_patch.py"
+      - "skills/perf-suggestion-patch/scripts/make_patch.py"
+      - "tests/unit/test_b3_make_patch.py"
+    rationale: "B3 requires patch-report.md mapping each patch to finding, impact, side effects, apply steps, and verification."
+    test_commit: "ee431b1"
