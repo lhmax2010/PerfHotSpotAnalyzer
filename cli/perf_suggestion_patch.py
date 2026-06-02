@@ -48,7 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (FileNotFoundError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_INPUT_UNREADABLE
-    except (json.JSONDecodeError, SchemaValidationError, ValueError) as exc:
+    except (json.JSONDecodeError, SchemaValidationError, ValueError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_FATAL
 

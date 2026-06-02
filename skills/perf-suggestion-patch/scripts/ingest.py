@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import time
+import hashlib
+import re
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -74,6 +76,26 @@ class AnalysisResult:
     run_report_path: Path
     suggestion_patch: dict[str, Any]
     run_report: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class GenericLLMProtocolPaths:
+    """Prompt and output paths for the generic-llm normalization handoff."""
+
+    report_id: str
+    prompt_path: Path
+    output_path: Path
+
+
+class GenericLLMOutputPending(RuntimeError):
+    """Raised when the host Agent has not written the normalized JSON yet."""
+
+    def __init__(self, paths: GenericLLMProtocolPaths) -> None:
+        self.paths = paths
+        super().__init__(
+            "generic-llm normalization is pending; prompt written to "
+            f"{paths.prompt_path}, expected normalized JSON at {paths.output_path}"
+        )
 
 
 ANCHOR_RUBRIC: dict[str, float] = {
@@ -173,6 +195,137 @@ def load_folded_stacks(
         source_reports=list(document.get("source_reports", [])),
         findings=list(document.get("findings", [])),
     )
+
+
+def load_generic_llm(
+    report_path: str | Path,
+    *,
+    output_dir: str | Path,
+    repo_root: str | Path | None = None,
+    target_name: str | None = None,
+) -> IngestedReport:
+    """Read a host-normalized generic report after writing the prompt handoff."""
+
+    raw_path = Path(report_path)
+    paths = prepare_generic_llm_protocol(
+        raw_path,
+        output_dir=output_dir,
+        repo_root=repo_root,
+        target_name=target_name,
+    )
+    if not paths.output_path.exists():
+        raise GenericLLMOutputPending(paths)
+
+    document = schema_validate.load_json(paths.output_path)
+    document = normalize_generic_llm_document(
+        document,
+        raw_path=raw_path,
+        repo_root=repo_root,
+        target_name=target_name,
+    )
+    schema_validate.validate_document(
+        document,
+        document_type=schema_validate.PERFORMANCE_FINDINGS,
+        skill="perf-suggestion-patch",
+    )
+    return IngestedReport(
+        path=raw_path,
+        document=document,
+        source_reports=list(document.get("source_reports", [])),
+        findings=list(document.get("findings", [])),
+    )
+
+
+def prepare_generic_llm_protocol(
+    report_path: str | Path,
+    *,
+    output_dir: str | Path,
+    repo_root: str | Path | None = None,
+    target_name: str | None = None,
+) -> GenericLLMProtocolPaths:
+    """Write the prompt that asks the host Agent to normalize free-form input."""
+
+    raw_path = Path(report_path)
+    output_path = Path(output_dir)
+    report_id = _generic_report_id(raw_path)
+    prompts_dir = output_path / "prompts"
+    normalized_dir = output_path / "outputs"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    normalized_dir.mkdir(parents=True, exist_ok=True)
+    paths = GenericLLMProtocolPaths(
+        report_id=report_id,
+        prompt_path=prompts_dir / f"{report_id}-normalize.prompt.md",
+        output_path=normalized_dir / f"{report_id}-normalized.json",
+    )
+    raw_text = raw_path.read_text(encoding="utf-8")
+    paths.prompt_path.write_text(
+        _generic_llm_prompt(
+            raw_text=raw_text,
+            raw_path=raw_path,
+            normalized_output=paths.output_path,
+            repo_root=repo_root,
+            target_name=target_name,
+        ),
+        encoding="utf-8",
+    )
+    return paths
+
+
+def normalize_generic_llm_document(
+    document: dict[str, Any],
+    *,
+    raw_path: Path,
+    repo_root: str | Path | None = None,
+    target_name: str | None = None,
+) -> dict[str, Any]:
+    """Enforce generic-llm source metadata and low parser confidence."""
+
+    normalized = deepcopy(document)
+    normalized["schema_version"] = "1.0"
+    target = normalized.setdefault("target", {})
+    target.setdefault("name", target_name or raw_path.stem)
+    target.setdefault("kind", "service")
+    target["repo_root"] = str(repo_root) if repo_root is not None else target.get("repo_root", "")
+    target.setdefault("platform", {"os": "linux", "arch": "x86_64"})
+    normalized.setdefault(
+        "run_context",
+        {
+            "device": "host",
+            "cpu_governor": "unknown",
+            "core_count": 1,
+            "repeat_count": 1,
+            "warmup_count": 0,
+        },
+    )
+    normalized["source_reports"] = [
+        {
+            "id": "S1",
+            "path": str(raw_path),
+            "source_format": "generic-llm",
+            "parser": "generic-llm",
+            "confidence": 0.30,
+        }
+    ]
+    findings = normalized.get("findings", [])
+    if isinstance(findings, list):
+        for finding in findings:
+            if not isinstance(finding, dict):
+                continue
+            source_ref = finding.setdefault("source_ref", {"source_id": "S1"})
+            source_ref["source_id"] = "S1"
+            confidence = finding.get("confidence", 0.30)
+            if isinstance(confidence, int | float):
+                finding["confidence"] = min(float(confidence), 0.30)
+            else:
+                finding["confidence"] = 0.30
+            finding["source_format"] = "generic-llm"
+            _set_generic_default_actionability(finding)
+    normalized["report_types"] = _derive_report_types(normalized.get("findings", []))
+    provenance = normalized.setdefault("provenance", {})
+    provenance.setdefault("generated_by", "host-agent-generic-llm")
+    provenance.setdefault("version", "1.0.0-b2")
+    provenance.setdefault("timestamp", datetime.now(UTC).isoformat())
+    return normalized
 
 
 def normalize_folded_stacks(
@@ -521,6 +674,31 @@ def run_folded_stacks(
     )
 
 
+def run_generic_llm(
+    report_path: str | Path,
+    output_dir: str | Path,
+    *,
+    repo_root: str | Path | None = None,
+    target_name: str | None = None,
+    verbose: bool = False,
+    tracer: TraceLogger | None = None,
+) -> AnalysisResult:
+    """Run the generic-llm prompt handoff adapter and advisory output path."""
+
+    report = load_generic_llm(
+        report_path,
+        output_dir=output_dir,
+        repo_root=repo_root,
+        target_name=target_name,
+    )
+    return run_ingested_report(
+        report,
+        output_dir,
+        verbose=verbose,
+        tracer=tracer,
+    )
+
+
 def run_ingest(
     report_path: str | Path,
     output_dir: str | Path,
@@ -551,6 +729,14 @@ def run_ingest(
         )
     if detected_format == "folded-stacks":
         return run_folded_stacks(
+            report_path,
+            output_dir,
+            repo_root=repo_root,
+            target_name=target_name,
+            verbose=verbose,
+        )
+    if detected_format == "generic-llm":
+        return run_generic_llm(
             report_path,
             output_dir,
             repo_root=repo_root,
@@ -776,6 +962,11 @@ def _gate_finding(anchored: AnchoredFinding) -> GateDecision:
             )
         if finding.get("kind") == "benchmark-latency" and not finding.get("perf_budget"):
             reasons.append("benchmark-latency-without-perf-budget")
+        if (
+            finding.get("source_format") == "generic-llm"
+            and not _generic_llm_anchor_can_continue(anchored.effective_anchor)
+        ):
+            reasons.append("generic-llm-default-advisory")
         reason = "; ".join(reasons) if reasons else "b1-advisory-only"
 
     return GateDecision(
@@ -1073,3 +1264,97 @@ def _aggregate_folded_leaf_samples(text: str) -> dict[str, int]:
     if not counts:
         raise ValueError("folded stacks report is empty")
     return counts
+
+
+def _generic_llm_anchor_can_continue(anchor: dict[str, Any] | None) -> bool:
+    if anchor is None:
+        return False
+    return (
+        anchor.get("resolution_method") in {"dwarf", "addr2line", "ctags", "compile-db"}
+        and isinstance(anchor.get("anchor_confidence"), int | float)
+        and float(anchor["anchor_confidence"]) >= ANCHOR_GATE_THRESHOLD
+    )
+
+
+def _set_generic_default_actionability(finding: dict[str, Any]) -> None:
+    if finding.get("actionability") is not None:
+        return
+    if finding.get("kind") == "function-hotspot":
+        has_code_anchor = bool(finding.get("code_anchors"))
+        has_attribution_anchor = isinstance(finding.get("attribution_anchor"), dict)
+        if has_code_anchor:
+            finding.setdefault("ownership", "owned")
+            finding["actionability"] = "actionable"
+        elif has_attribution_anchor:
+            finding.setdefault("ownership", "third-party")
+            finding["actionability"] = "actionable"
+        else:
+            finding.setdefault("ownership", "unknown")
+            finding["actionability"] = "informational"
+        return
+    finding["actionability"] = "actionable"
+
+
+def _generic_report_id(report_path: Path) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", report_path.stem).strip("-") or "report"
+    digest = hashlib.sha256(str(report_path).encode("utf-8")).hexdigest()[:10]
+    return f"{stem}-{digest}"
+
+
+def _generic_llm_prompt(
+    *,
+    raw_text: str,
+    raw_path: Path,
+    normalized_output: Path,
+    repo_root: str | Path | None,
+    target_name: str | None,
+) -> str:
+    repo_root_text = str(repo_root) if repo_root is not None else "<unknown>"
+    target_name_text = target_name or raw_path.stem
+    return (
+        "# Normalize Free-form Performance Report\n\n"
+        "You are the host Agent. Read the raw report and write exactly one "
+        "canonical performance-findings JSON document.\n\n"
+        "Rules:\n"
+        "- Do not invent measured impact.\n"
+        "- Use schema_version \"1.0\".\n"
+        "- Set source_reports[0].source_format to \"generic-llm\".\n"
+        "- Set source_reports[0].parser to \"generic-llm\".\n"
+        "- Set source_reports[0].confidence to 0.30.\n"
+        "- Keep findings[].confidence at or below 0.30 unless deterministic "
+        "evidence is present in the raw report.\n"
+        "- Prefer advisory-safe findings when symbols, baselines, or anchors are missing.\n"
+        "- Write the JSON to this path:\n"
+        f"  {normalized_output}\n\n"
+        "Context:\n"
+        f"- raw_report: {raw_path}\n"
+        f"- repo_root: {repo_root_text}\n"
+        f"- target_name: {target_name_text}\n\n"
+        "Minimum top-level fields:\n"
+        "`schema_version`, `report_types`, `target`, `source_reports`, "
+        "`run_context`, `findings`, `provenance`.\n\n"
+        "Raw report:\n\n"
+        "```text\n"
+        f"{raw_text}\n"
+        "```\n"
+    )
+
+
+def _derive_report_types(findings: Any) -> list[str]:
+    kind_to_report_type = {
+        "function-hotspot": "hotspot-profile",
+        "binary-size-large": "binary-size",
+        "binary-size-regression": "binary-size",
+        "benchmark-regression": "benchmark",
+        "benchmark-latency": "benchmark",
+    }
+    if not isinstance(findings, list):
+        return []
+    report_types = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        report_type = kind_to_report_type.get(finding.get("kind"))
+        if report_type is not None and report_type not in report_types:
+            report_types.append(report_type)
+    return report_types
