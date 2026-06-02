@@ -1,31 +1,31 @@
 patches:
   - id: p001
     title: "Add DESIGN §10.4 golden fixtures"
-    commit: "this-branch-tip"
+    commit: "a1014fc"
     files_changed:
       - "tests/fixtures/golden/**"
     rationale: "M0.5 requires positive fixtures 1-7 and negative fixtures 8-12 as the contract baseline for later stages."
-    test_commit: "this-branch-tip"
+    test_commit: "a1014fc"
   - id: p002
     title: "Validate all golden fixtures through schema_validate"
-    commit: "this-branch-tip"
+    commit: "a1014fc"
     files_changed:
       - "tests/functional/test_golden_fixtures.py"
     rationale: "DESIGN §10.3 and §10.5 require fixture-level functional validation: positive all pass, negative all blocked."
-    test_commit: "this-branch-tip"
+    test_commit: "a1014fc"
   - id: p003
     title: "Record M0.5 guide, memory, and review package"
-    commit: "this-branch-tip"
+    commit: "a1014fc"
     files_changed:
       - "docs/test-guides/m0.5-fixtures.md"
       - "docs/reviews/m0.5-fixtures.md"
       - ".dev_memory/m0.5_fixtures/*"
       - ".dev_memory/current.yaml"
     rationale: "The 8-step loop requires guide, memory, and review artifacts before shipping the stage."
-    test_commit: "this-branch-tip"
+    test_commit: "a1014fc"
   - id: p004
     title: "Refresh M0.5 fixtures for DESIGN v1.0.6"
-    commit: "this-branch-tip"
+    commit: "4cbeb78"
     files_changed:
       - "common/schemas/*"
       - "common/schema_validate.py"
@@ -35,4 +35,4 @@ patches:
       - "tests/security/test_no_llm_sdk_imports.py"
       - ".github/workflows/ci.yml"
     rationale: "DESIGN v1.0.6 requires capture-bundle, ownership/actionability, effective_anchor, canonical schema hash, and LLM SDK scan coverage before A/B milestones."
-    test_commit: "this-branch-tip"
+    test_commit: "4cbeb78"

@@ -1,7 +1,7 @@
 patches:
   - id: p001
     title: "Create M0 repository skeleton and packaging metadata"
-    commit: "this-branch-tip"
+    commit: "5d7f09b"
     files_changed:
       - "pyproject.toml"
       - "requirements.txt"
@@ -13,19 +13,19 @@ patches:
       - "integrations/*"
       - "mcp/server.py"
     rationale: "DESIGN §13 requires a stable skeleton before A/B implementation."
-    test_commit: "this-branch-tip"
+    test_commit: "5d7f09b"
   - id: p002
     title: "Implement performance-findings and suggestion-patch schemas"
-    commit: "this-branch-tip"
+    commit: "5d7f09b"
     files_changed:
       - "skills/perf-hotspot-analyzer/schemas/performance-findings.schema.json"
       - "skills/perf-suggestion-patch/schemas/performance-findings.schema.json"
       - "skills/perf-suggestion-patch/schemas/suggestion-patch.schema.json"
     rationale: "DESIGN §6.2 and §6.3 require per-kind and per-status structural conditions."
-    test_commit: "this-branch-tip"
+    test_commit: "5d7f09b"
   - id: p003
     title: "Implement shared schema validation, tracing, and CLI skeletons"
-    commit: "this-branch-tip"
+    commit: "5d7f09b"
     files_changed:
       - "common/schema_validate.py"
       - "common/tracing.py"
@@ -35,13 +35,13 @@ patches:
       - "perf_suggestion_patch/*"
       - "perf_optimization_pipeline/*"
     rationale: "DESIGN §6.6, §11, and §12.1 require shared validation and unified CLI behavior."
-    test_commit: "this-branch-tip"
+    test_commit: "5d7f09b"
   - id: p004
     title: "Add M0 unit tests"
-    commit: "this-branch-tip"
+    commit: "5d7f09b"
     files_changed:
       - "tests/unit/test_schema_conditions.py"
       - "tests/unit/test_schema_semantics.py"
       - "tests/unit/test_skill_boundaries.py"
     rationale: "DESIGN §10.5 M0 requires condition validation and semantic rules to be covered."
-    test_commit: "this-branch-tip"
+    test_commit: "5d7f09b"

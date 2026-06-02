@@ -1,17 +1,17 @@
 schema_version: 1
 shared_current: m0.5_fixtures
 shared_last_completed: m0.5_fixtures
-session_count: 3
+session_count: 4
 milestones:
   m0_schema:
     status: completed
     branch: stage/m0-schema
-    last_commit: this-branch-tip
+    last_commit: tag:stage-m0-schema-done
     review_status: pending
   m0.5_fixtures:
     status: completed
     branch: stage/m0.5-fixtures
-    last_commit: this-branch-tip
+    last_commit: tag:stage-m0.5-fixtures-done
     review_status: pending
   a1_x86_perf:
     status: TODO
@@ -29,10 +29,10 @@ milestones:
     last_commit: null
     review_status: not-started
   b1_ingest_anchor:
-    status: TODO
-    branch: null
-    last_commit: null
-    review_status: not-started
+    status: completed
+    branch: stage/b1-ingest-anchor
+    last_commit: tag:stage-b1-ingest-anchor-done
+    review_status: pending
   b2_benchmark_folded:
     status: TODO
     branch: null
@@ -60,15 +60,14 @@ lines:
     last_commit: null
     review_status: not-started
   B:
-    current: b1_ingest_anchor
-    last_completed: null
-    last_commit: null
-    review_status: not-started
+    current: b2_benchmark_folded
+    last_completed: b1_ingest_anchor
+    last_commit: tag:stage-b1-ingest-anchor-done
+    review_status: pending
 next_steps:
-  - "Wait for M0.5 v1.0.6 review. After M0/M0.5 are merged to main, start A1 and/or B1 from reviewed main."
+  - "Wait for B1 ingest/anchor review. Do not continue to B2 until B1 is reviewed."
 blocked_on: null
 notes: |
-  M0.5 implementation is refreshed for DESIGN v1.0.6 on stage/m0.5-fixtures.
-  The branch includes the earlier M0/M0.5 work plus main's v1.0.6 DESIGN update.
-  A and B line pointers are initialized but must not advance until M0.5 is
-  reviewed.
+  B1 is implemented on stage/b1-ingest-anchor from the M0.5 v1.0.6 branch.
+  The B1 analyzer-json path emits advisory-only patches and run-report gate
+  decisions. B2/B3 work has not started.

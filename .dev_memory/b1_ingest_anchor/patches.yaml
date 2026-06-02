@@ -1,0 +1,29 @@
+patches:
+  - id: p001
+    title: "Implement analyzer-json ingestion adapter"
+    commit: "0d6d5ea"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "tests/unit/test_b1_ingest.py"
+    rationale: "B1 requires reading canonical performance-findings.json through schema_validate and preserving source_reports metadata."
+    test_commit: "0d6d5ea"
+  - id: p002
+    title: "Derive effective anchors and apply rubric scoring"
+    commit: "375f2b4"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "tests/unit/test_b1_ingest.py"
+    rationale: "B1 requires effective_anchor derivation from common.schema_validate and deterministic DESIGN section 6.4 anchor_confidence scoring."
+    test_commit: "375f2b4"
+  - id: p003
+    title: "Emit advisory-only patches and run-report gate decisions"
+    commit: "eaf85e8"
+    files_changed:
+      - "cli/perf_suggestion_patch.py"
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "tests/functional/test_b1_analyzer_json.py"
+      - "tests/unit/test_b1_ingest.py"
+      - "pyproject.toml"
+      - "requirements-dev.txt"
+    rationale: "B1 requires actionability/effective-anchor gate records, advisory-only suggestion-patch output, schema validation, CLI analyze support, and coverage verification."
+    test_commit: "eaf85e8"
