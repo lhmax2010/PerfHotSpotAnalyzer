@@ -144,6 +144,130 @@ def load_google_benchmark(
     )
 
 
+def load_folded_stacks(
+    report_path: str | Path,
+    *,
+    repo_root: str | Path | None = None,
+    target_name: str | None = None,
+    top_n: int = 20,
+) -> IngestedReport:
+    """Normalize folded stack samples into function-hotspot findings."""
+
+    path = Path(report_path)
+    text = path.read_text(encoding="utf-8")
+    document = normalize_folded_stacks(
+        text,
+        report_path=path,
+        repo_root=repo_root,
+        target_name=target_name,
+        top_n=top_n,
+    )
+    schema_validate.validate_document(
+        document,
+        document_type=schema_validate.PERFORMANCE_FINDINGS,
+        skill="perf-suggestion-patch",
+    )
+    return IngestedReport(
+        path=path,
+        document=document,
+        source_reports=list(document.get("source_reports", [])),
+        findings=list(document.get("findings", [])),
+    )
+
+
+def normalize_folded_stacks(
+    text: str,
+    *,
+    report_path: Path,
+    repo_root: str | Path | None = None,
+    target_name: str | None = None,
+    top_n: int = 20,
+) -> dict[str, Any]:
+    """Build a canonical performance-findings document from folded stacks."""
+
+    symbol_counts = _aggregate_folded_leaf_samples(text)
+    total_samples = sum(symbol_counts.values())
+    if total_samples <= 0:
+        raise ValueError("folded stacks must contain at least one positive sample")
+
+    findings = []
+    for index, (symbol, samples) in enumerate(
+        sorted(symbol_counts.items(), key=lambda item: (-item[1], item[0]))[:top_n],
+        start=1,
+    ):
+        pct = (samples / total_samples) * 100.0
+        findings.append(
+            {
+                "id": f"F{index:03d}",
+                "kind": "function-hotspot",
+                "title": f"{symbol} is hot in folded stacks",
+                "source_ref": {
+                    "source_id": "S1",
+                    "locator": f"symbol:{symbol}",
+                    "label": symbol,
+                },
+                "ownership": "unknown",
+                "actionability": "informational",
+                "evidence": {
+                    "metric": "self_cpu_pct",
+                    "value": round(pct, 6),
+                    "unit": "percent",
+                    "samples": samples,
+                    "rank": index,
+                    "hot_symbol": {
+                        "symbol": symbol,
+                        "dso": "unknown",
+                        "ownership": "unknown",
+                    },
+                },
+                "diagnosis": (
+                    "Folded stack aggregation found a hot symbol, but no deterministic "
+                    "source anchor is available yet."
+                ),
+                "confidence": 0.75,
+            }
+        )
+
+    return {
+        "schema_version": "1.0",
+        "report_types": ["hotspot-profile"],
+        "target": {
+            "name": target_name or report_path.stem,
+            "kind": "process",
+            "repo_root": str(repo_root) if repo_root is not None else "",
+            "platform": {"os": "linux", "arch": "x86_64"},
+        },
+        "source_reports": [
+            {
+                "id": "S1",
+                "path": str(report_path),
+                "source_format": "folded-stacks",
+                "parser": "structured",
+                "confidence": 0.85,
+            }
+        ],
+        "run_context": {
+            "device": "host",
+            "cpu_governor": "unknown",
+            "core_count": 1,
+            "repeat_count": 1,
+            "warmup_count": 0,
+        },
+        "profiling": {
+            "tool": "perf",
+            "events": ["cycles"],
+            "callgraph_mode": "none",
+            "artifacts": {"folded": str(report_path)},
+        },
+        "findings": findings,
+        "provenance": {
+            "generated_by": "perf-suggestion-patch.ingest",
+            "version": "1.0.0-b2",
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+    }
+
+
 def normalize_google_benchmark(
     current_document: dict[str, Any],
     *,
@@ -373,6 +497,30 @@ def run_google_benchmark(
     )
 
 
+def run_folded_stacks(
+    report_path: str | Path,
+    output_dir: str | Path,
+    *,
+    repo_root: str | Path | None = None,
+    target_name: str | None = None,
+    verbose: bool = False,
+    tracer: TraceLogger | None = None,
+) -> AnalysisResult:
+    """Run the B2 folded-stacks adapter and advisory output path."""
+
+    report = load_folded_stacks(
+        report_path,
+        repo_root=repo_root,
+        target_name=target_name,
+    )
+    return run_ingested_report(
+        report,
+        output_dir,
+        verbose=verbose,
+        tracer=tracer,
+    )
+
+
 def run_ingest(
     report_path: str | Path,
     output_dir: str | Path,
@@ -401,6 +549,14 @@ def run_ingest(
             target_name=target_name,
             verbose=verbose,
         )
+    if detected_format == "folded-stacks":
+        return run_folded_stacks(
+            report_path,
+            output_dir,
+            repo_root=repo_root,
+            target_name=target_name,
+            verbose=verbose,
+        )
     raise ValueError(f"unsupported input format for B2: {detected_format}")
 
 
@@ -414,6 +570,8 @@ def detect_input_format(report_path: str | Path) -> str:
             return "google-benchmark"
         if isinstance(document, dict) and "findings" in document:
             return "analyzer-json"
+    if path.suffix.lower() in {".folded", ".collapsed"}:
+        return "folded-stacks"
     return "generic-llm"
 
 
@@ -885,3 +1043,33 @@ def _build_benchmark_latency_finding(
         "diagnosis": "Single Google Benchmark report; no baseline comparison is available.",
         "confidence": 0.90,
     }
+
+
+def _aggregate_folded_leaf_samples(text: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            stack, count_text = line.rsplit(maxsplit=1)
+        except ValueError as exc:
+            raise ValueError(f"invalid folded stack line {line_number}: {raw_line!r}") from exc
+        try:
+            samples = int(count_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid folded stack sample count on line {line_number}: {count_text!r}"
+            ) from exc
+        if samples <= 0:
+            raise ValueError(
+                f"folded stack sample count must be positive on line {line_number}"
+            )
+        frames = [frame.strip() for frame in stack.split(";") if frame.strip()]
+        if not frames:
+            raise ValueError(f"invalid folded stack frames on line {line_number}")
+        symbol = frames[-1]
+        counts[symbol] = counts.get(symbol, 0) + samples
+    if not counts:
+        raise ValueError("folded stacks report is empty")
+    return counts

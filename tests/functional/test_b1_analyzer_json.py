@@ -165,3 +165,22 @@ def test_b2_cli_analyze_auto_detects_google_benchmark(tmp_path: Path) -> None:
     run_report = json.loads((tmp_path / "run-report.json").read_text(encoding="utf-8"))
     assert run_report["input"]["source_formats"] == ["google-benchmark", "google-benchmark"]
     assert run_report["findings"]["by_kind"] == {"benchmark-regression": 1}
+
+
+def test_b2_cli_analyze_auto_detects_folded_stacks(tmp_path: Path) -> None:
+    exit_code = suggestion_patch_main(
+        [
+            "analyze",
+            "--input",
+            str(FIXTURE_ROOT / "positive" / "13-capture-bundle-10-piece" / "out.folded"),
+            "--repo-root",
+            "/repo/demo",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 0
+    run_report = json.loads((tmp_path / "run-report.json").read_text(encoding="utf-8"))
+    assert run_report["input"]["source_formats"] == ["folded-stacks"]
+    assert run_report["findings"]["by_kind"] == {"function-hotspot": 2}
