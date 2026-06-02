@@ -1,0 +1,38 @@
+patches:
+  - id: p001
+    title: "Implement Google Benchmark ingest"
+    commit: "a3add66"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "cli/perf_suggestion_patch.py"
+      - "tests/unit/test_b2_google_benchmark.py"
+      - "tests/functional/test_b1_analyzer_json.py"
+    rationale: "B2 requires Google Benchmark single-report latency and before/after regression normalization."
+    test_commit: "a3add66"
+  - id: p002
+    title: "Implement folded-stacks ingest"
+    commit: "6b10652"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "tests/unit/test_b2_folded_stacks.py"
+      - "tests/functional/test_b1_analyzer_json.py"
+    rationale: "B2 requires folded stack aggregation into function-hotspot findings with informational downgrade when no source anchor exists."
+    test_commit: "6b10652"
+  - id: p003
+    title: "Implement generic-llm prompt handoff"
+    commit: "d9bf357"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "cli/perf_suggestion_patch.py"
+      - "tests/unit/test_b2_generic_llm.py"
+      - "tests/functional/test_b1_analyzer_json.py"
+    rationale: "B2 requires scripts to write prompts, wait for host-normalized JSON, and never call LLM SDKs."
+    test_commit: "d9bf357"
+  - id: p004
+    title: "Add repo-root deterministic anchor search"
+    commit: "1c38c07"
+    files_changed:
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "tests/unit/test_b2_anchor_search.py"
+    rationale: "B2 requires external reports to anchor symbols and benchmark names against repo_root with rubric-scored methods."
+    test_commit: "1c38c07"

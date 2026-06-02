@@ -1,7 +1,7 @@
 schema_version: 1
 shared_current: m0.5_fixtures
 shared_last_completed: m0.5_fixtures
-session_count: 4
+session_count: 5
 milestones:
   m0_schema:
     status: completed
@@ -34,10 +34,10 @@ milestones:
     last_commit: tag:stage-b1-ingest-anchor-done
     review_status: pending
   b2_benchmark_folded:
-    status: TODO
-    branch: null
-    last_commit: null
-    review_status: not-started
+    status: completed
+    branch: stage/b2-benchmark-folded-generic
+    last_commit: tag:stage-b2-benchmark-folded-done
+    review_status: pending
   b3_patch_gen:
     status: TODO
     branch: null
@@ -60,14 +60,14 @@ lines:
     last_commit: null
     review_status: not-started
   B:
-    current: b2_benchmark_folded
-    last_completed: b1_ingest_anchor
-    last_commit: tag:stage-b1-ingest-anchor-done
+    current: b3_patch_gen
+    last_completed: b2_benchmark_folded
+    last_commit: tag:stage-b2-benchmark-folded-done
     review_status: pending
 next_steps:
-  - "Wait for B1 ingest/anchor review. Do not continue to B2 until B1 is reviewed."
+  - "Wait for B2 benchmark/folded/generic review. Do not continue to B3 until B2 is reviewed."
 blocked_on: null
 notes: |
-  B1 is implemented on stage/b1-ingest-anchor from the M0.5 v1.0.6 branch.
-  The B1 analyzer-json path emits advisory-only patches and run-report gate
-  decisions. B2/B3 work has not started.
+  B2 is implemented on stage/b2-benchmark-folded-generic from the B1 branch.
+  Google Benchmark, folded-stacks, generic-llm prompt handoff, and deterministic
+  repo-root anchor search are covered. B3 patch generation has not started.

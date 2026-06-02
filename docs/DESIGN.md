@@ -625,6 +625,8 @@ actionability ∈ {not-actionable, informational}   -> code_anchors[] 可空；e
 
 > 能否出 diff 主要看 `anchor_confidence`，不是 finding confidence。
 
+**实施期约定（B1 起）**：当输入报告已经携带锚点置信度，而 Skill B 需要按 §6.4 rubric 重新评分时，输出/审计对象中保留输入值为 `reported_anchor_confidence`，并把 rubric 后的值写入 `anchor_confidence`。Gate、`effective_anchor`、`chosen_anchor` 一律只看 rubric 后的 `anchor_confidence`；`reported_anchor_confidence` 仅用于追溯上游报告原始声明，不能作为出 diff 闸门。
+
 ### 6.6 跨字段语义校验（`common/schema_validate.py`，JSON Schema 之外的硬规则）
 
 JSON Schema 只管单字段结构，下列跨字段规则由 `schema_validate.py` 强制（CLI 输出前必过，不得绕过）：
