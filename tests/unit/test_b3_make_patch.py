@@ -170,3 +170,70 @@ def test_make_patch_missing_anchor_stays_advisory_without_diff(tmp_path: Path) -
     assert patch["status"] == "advisory-only"
     assert "diff" not in patch
     assert "recommendation" in patch
+
+
+def test_build_flag_policy_marks_package_wide_blast_radius(tmp_path: Path) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    (repo / "CMakeLists.txt").write_text("add_executable(demo src/hot.c)\n", encoding="utf-8")
+    report = performance_report(repo)
+    finding = report["findings"][0]
+    finding["kind"] = "binary-size-large"
+    finding["evidence"] = {
+        "metric": "section_bytes",
+        "value": 131072,
+        "unit": "bytes",
+        "section": ".text",
+        "file": "demo",
+        "threshold": {"type": "absolute-bytes", "value": 65536, "reason": "large text"},
+    }
+    finding["code_anchors"] = [
+        {
+            "symbol": "CMakeLists",
+            "file": "CMakeLists.txt",
+            "line_start": 1,
+            "line_end": 1,
+            "language": "cmake",
+            "anchor_confidence": 0.85,
+            "resolution_method": "addr2line",
+        }
+    ]
+    finding["candidate_optimizations"][0]["patch_category"] = "build-flag"
+    report["report_types"] = ["binary-size"]
+    report.pop("profiling")
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    patch = result.suggestion_patch["patches"][0]
+    assert patch["status"] == "diff-ready"
+    assert patch["patch_category"] == "build-flag"
+    assert "may affect all files in package" in patch["files_touched_policy"]["reason"]
+    assert patch["files_touched_policy"]["risk"] == "medium"
+
+
+def test_deny_list_path_is_advisory_without_diff(tmp_path: Path) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    git_dir = repo / ".git"
+    git_dir.mkdir()
+    (git_dir / "config").write_text("[core]\nrepositoryformatversion = 0\n", encoding="utf-8")
+    report = performance_report(repo)
+    report["findings"][0]["code_anchors"][0]["file"] = ".git/config"
+    report["findings"][0]["code_anchors"][0]["line_start"] = 1
+    report["findings"][0]["code_anchors"][0]["line_end"] = 1
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    patch = result.suggestion_patch["patches"][0]
+    assert patch["status"] == "advisory-only"
+    assert "diff" not in patch
+    assert patch["files_touched_policy"]["allowed"] is False
+    assert "deny-list" in patch["files_touched_policy"]["reason"]

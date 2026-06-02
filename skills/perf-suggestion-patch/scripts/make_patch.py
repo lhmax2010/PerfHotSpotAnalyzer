@@ -175,21 +175,57 @@ def _build_patch(
         return patch, _gate_decision(finding, patch, chosen_anchor, reasons)
 
     relative_file, diff_text = diff_result
+    files_policy = evaluate_files_touched_policy([relative_file], category)
+    if not files_policy["allowed"]:
+        reasons = [files_policy["reason"]]
+        patch = _advisory_patch(base, finding, chosen_anchor, reasons)
+        patch["files_touched_policy"] = files_policy
+        return patch, _gate_decision(finding, patch, chosen_anchor, reasons)
+
     patch = deepcopy(base)
     patch.update(
         {
             "chosen_anchor": chosen_anchor,
             "diff": diff_text,
             "files_touched": [relative_file],
-            "files_touched_policy": {
-                "allowed": True,
-                "reason": "Default source path and local micro-optimization.",
-                "risk": "low",
-            },
+            "files_touched_policy": files_policy,
             "status": "diff-ready",
         }
     )
     return patch, _gate_decision(finding, patch, chosen_anchor, [])
+
+
+def evaluate_files_touched_policy(files: list[str], patch_category: str) -> dict[str, Any]:
+    """Evaluate DESIGN file allow/deny policy for generated diffs."""
+
+    denied = [file for file in files if _is_denied_path(file)]
+    if denied:
+        return {
+            "allowed": False,
+            "reason": f"deny-list path is not patchable: {', '.join(denied)}",
+            "risk": "high",
+        }
+
+    not_allowed = [file for file in files if not _is_default_allowed_path(file)]
+    if not_allowed:
+        return {
+            "allowed": False,
+            "reason": f"path is outside default allow list: {', '.join(not_allowed)}",
+            "risk": "medium",
+        }
+
+    if patch_category == "build-flag":
+        return {
+            "allowed": True,
+            "reason": "build-flag change may affect all files in package",
+            "risk": "medium",
+        }
+
+    return {
+        "allowed": True,
+        "reason": "Default source path and local code change.",
+        "risk": "low",
+    }
 
 
 def _base_patch(
@@ -327,6 +363,46 @@ def _suggestion_comment(
     if file_path.suffix.lower() in {".cmake", ".txt"} or file_path.name == "CMakeLists.txt":
         return f"# {text}"
     return f"// {text}"
+
+
+def _is_denied_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lstrip("/")
+    parts = [part for part in normalized.split("/") if part]
+    lowered = normalized.lower()
+    if ".git" in parts:
+        return True
+    if lowered.endswith(".lock"):
+        return True
+    if any(part in {"secrets", "secret", "credentials", ".ssh"} for part in parts):
+        return True
+    if any(marker in lowered for marker in ("password", "credential", "secret", "token")):
+        return True
+    if any(part in {"build", "dist", "out", "generated", "__pycache__"} for part in parts):
+        return True
+    binary_suffixes = {
+        ".a",
+        ".bin",
+        ".dll",
+        ".dylib",
+        ".elf",
+        ".exe",
+        ".o",
+        ".png",
+        ".so",
+        ".zip",
+    }
+    return Path(normalized).suffix.lower() in binary_suffixes
+
+
+def _is_default_allowed_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lstrip("/")
+    if normalized.startswith(("src/", "include/")):
+        return True
+    if normalized == "CMakeLists.txt":
+        return True
+    if normalized.startswith("packaging/") and normalized.endswith(".spec"):
+        return True
+    return False
 
 
 def _chosen_anchor(finding: dict[str, Any]) -> dict[str, Any] | None:
