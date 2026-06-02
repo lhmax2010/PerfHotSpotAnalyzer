@@ -170,3 +170,77 @@ def test_score_anchor_confidence_caller_attribution_ambiguous_tier() -> None:
     )
 
     assert score == 0.65
+
+
+def test_gate_findings_keeps_actionable_with_good_anchor_advisory_in_b1() -> None:
+    ingest = load_ingest_module()
+    anchored = ingest.AnchoredFinding(
+        finding={"id": "F001", "actionability": "actionable"},
+        effective_anchor={
+            "symbol": "hot",
+            "file": "src/hot.c",
+            "line_start": 1,
+            "anchor_confidence": 0.95,
+            "resolution_method": "dwarf",
+        },
+        anchor_confidence=0.95,
+    )
+
+    decisions = ingest.gate_findings([anchored])
+
+    assert decisions[0].status == "advisory-only"
+    assert decisions[0].reason == "b1-advisory-only"
+
+
+def test_gate_findings_low_confidence_anchor_reason() -> None:
+    ingest = load_ingest_module()
+    anchored = ingest.AnchoredFinding(
+        finding={"id": "F001", "actionability": "actionable"},
+        effective_anchor={
+            "symbol": "hot",
+            "file": "src/hot.c",
+            "line_start": 1,
+            "anchor_confidence": 0.65,
+            "resolution_method": "grep",
+        },
+        anchor_confidence=0.65,
+    )
+
+    decisions = ingest.gate_findings([anchored])
+
+    assert decisions[0].reason == "effective_anchor_confidence=0.65 < 0.70"
+
+
+def test_gate_findings_non_actionable_reason_precedes_missing_anchor() -> None:
+    ingest = load_ingest_module()
+    anchored = ingest.AnchoredFinding(
+        finding={"id": "F001", "actionability": "informational"},
+        effective_anchor=None,
+        anchor_confidence=None,
+    )
+
+    decisions = ingest.gate_findings([anchored])
+
+    assert decisions[0].reason == "actionability=informational"
+
+
+def test_build_suggestion_patch_validates_and_omits_diff() -> None:
+    ingest = load_ingest_module()
+    report = ingest.load_analyzer_json(
+        FIXTURE_ROOT / "positive" / "01-hotspot-binary-size-mixed" / "performance-findings.json"
+    )
+    anchored = ingest.anchor_findings(report.findings)
+    decisions = ingest.gate_findings(anchored)
+
+    suggestion_patch = ingest.build_suggestion_patch(
+        report,
+        anchored,
+        decisions,
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    assert suggestion_patch["patches"][0]["status"] == "advisory-only"
+    assert "diff" not in suggestion_patch["patches"][0]
+    assert "diff" not in suggestion_patch["patches"][1]
+    assert suggestion_patch["patches"][0]["validation_status"] == "not-run"
+    assert suggestion_patch["patches"][0]["measured_impact"] is None
