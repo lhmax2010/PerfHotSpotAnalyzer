@@ -1,6 +1,10 @@
-# 性能优化 Skill 套件设计文档 v1.0.2
+# 性能优化 Skill 套件设计文档 v1.0.6
 
-**版本**：v1.0.2（实施冻结版，整合 v1~v3.1.1 全部 review 意见 + 工程化要求）
+**版本**：v1.0.6（实施冻结版，整合 v1~v3.1.1 全部 review 意见 + 工程化要求）
+**v1.0.6 修订**：纯文案/一致性扫尾——§7 与 §14 残留"folded 作主源"全部改成 `perf-script.txt` 主源、folded 仅供火焰图/聚合;`out.folded` 默认改由 **host** 基于 perf-script.txt 生成(不强依赖 target 上的 stackcollapse/Perl);修正 §13.1 中 §4.3 误引用;扩大 CI LLM SDK 扫描范围(覆盖 common/skills/workflows/cli/mcp/integrations,豁免 tests/)并同时拦 `import`/`from import`;§6.4 rubric 补 `caller-attribution` 评分档;§2 "M0 已实现"改"M0 必须实现";附录术语表补 `perf-script.txt`。无架构变更。
+**v1.0.5 修订**：实现可判定性收口——Bundle 改 10 件并新增 `perf-script.txt`(host 符号化主源);明确 `out.folded` 由 `stackcollapse-perf` 生成且仅作火焰图/聚合;§6.2 `function-hotspot` 条件按 ownership/actionability 分支;新增 **`effective_anchor` 规则**(B 一律用它,不看 `code_anchors[0]`);消除 `generic-llm` 的两段冲突措辞;明确 ingest 的 generic-llm 兜底由**宿主 Agent 写回磁盘**,脚本不调 LLM SDK(进 §13.1);schema 共享改为 canonical(`common/schemas/`)+ 两 skill 拷贝 + CI 字节一致;`allocation-reduction` 补 Gate 归类;binary-size-large 的 top-n 默认 informational;CI live perf 默认 skip;buildid 采集首选 `perf buildid-list`;ownership 模板补 `/usr/lib64`/`/lib`/`/lib64`。架构不动。
+**v1.0.4 修订**：§3A 从抽象 Device Transport 落到 **ssh+scp 主路径**（Tizen 场景；sdb 作退路）；新增 `DeviceRunner` 抽象与两份用户面 yaml（**device profile** + **capture-job**）；新增 **ownership profile yaml**（`/usr/lib` 量级前缀清单，作为 §3B 的输入而非未决项）；Capture Bundle 内容扩成 8 件套并补 `perf-report.txt` 作退路、`exec.log`；A1 显式跑 DeviceRunner local backend 把"远程执行链"在 x86 上先打通；§14/§15 同步。架构不动，§3A/§3B 从规格变成可执行方案。
+**v1.0.3 修订**：新增 §3A「设备执行与数据搬运」（Device Transport 两模式 + Capture Bundle；Skill A 拆 Capture/Analyze 两阶段）、新增 §3B「热点归属与归因」（ownership 分层 + caller-attribution + actionability 闸门）；§6 增 capture-bundle manifest 与 finding 的 `ownership`/`attribution_anchor`/`actionability` 字段；B 的 Gate 增「非 actionable 不出 diff」；§7 细化 transport。补规格缺口，无架构变更。
 **v1.0.2 修订**：附录 anchor_confidence 措辞同步、binary-size threshold 移出未决、generic-llm Gate 写成机器可实现形式、diff-ready/needs-review 对 verification_plan 的要求明确、schema_validate 增 source_ref 有效性与 benchmark-regression baseline 一致性校验。纯文字/语义一致性收口，无架构变更。
 **v1.0.1 修订**：闸门措辞精确化、新增 `verification_plan`、跨字段语义校验（confidence 上限 / report_types 一致性）、binary-size-large v1 默认 threshold、generic-llm 二次锚定硬规则、Diagnose 改为宿主 Agent/LLM、common 共享边界、新增 Implementation Guardrails。无架构变更。
 **目标读者**：实施者（Codex）、Review 协作 AI（ChatGPT / Claude / 其它）、最终用户
@@ -16,6 +20,8 @@
 - §1 设计哲学与原则
 - §2 整体架构
 - §3 Skill A：perf-hotspot-analyzer
+- §3A 设备执行与数据搬运（perf 在开发板上跑）
+- §3B 热点归属与归因（决定哪段代码才是可优化点）
 - §4 Skill B：perf-suggestion-patch
 - §5 Workflow：perf-optimization-pipeline（编排器，非 triggerable skill）
 - §6 数据契约（performance-findings / suggestion-patch + 条件校验）
@@ -93,7 +99,7 @@
         └──────────────────────────────────────────────────────┘
 ```
 
-**独立性约束**：A、B 不互相 import；唯一共享物是 `performance-findings.schema.json`（两 skill 各放一份拷贝）。Workflow 是唯一同时知道 A 和 B 的组件，其"知道"体现在编排代码里，**不写 SKILL.md、不做触发描述**。
+**独立性约束**：A、B 不互相 import；schema 采用 **canonical 单源 + 字节一致拷贝**——`common/schemas/performance-findings.schema.json` 为唯一权威源，两 skill 的 `schemas/` 下持有发布拷贝（便于独立发布/部署）；**CI 强制校验两份拷贝与 canonical 的 SHA-256 一致**（**M0 必须实现**），不一致即 fail，避免 schema 漂移。运行时统一通过 `common/schema_validate.py` 加载 canonical schema。Workflow 是唯一同时知道 A 和 B 的组件，其"知道"体现在编排代码里，**不写 SKILL.md、不做触发描述**。
 **common 边界**：A、B 可以 import `common/*`（tracing、schema_validate、cli_base）；但**不得互相 import 对方 skill 内部模块**（`skills/perf-hotspot-analyzer/` ↔ `skills/perf-suggestion-patch/`）。"互不 import"指 skill 内部，不含共享库。
 
 **三入口**：full（A→Gate→B）、B-only（外部报告直接进 B，需求主路径之一）、A-only（只要分析）。
@@ -138,17 +144,261 @@ description: >-
   JSON can be fed directly to perf-suggestion-patch.
 ```
 
+**两阶段（关键，见 §3A 设备模型）**：Skill A 显式分 **Capture（需设备）** 与 **Analyze（纯 host、离线）** 两段，中间隔一个自包含的 **Capture Bundle**。x86 本地分析是「设备=host」的退化情形。
+
 **流程（SKILL.md 正文，imperative）**：
 
-1. **Preflight**（`scripts/preflight.py`）：检测 `perf` 版本、`perf_event_paranoid`、`CAP_PERFMON`、容器；检测符号/分离 debuginfo/build-id。**决定自适应 callgraph 策略**：frame pointer 可用→`fp`；否则 dwarf/CFI 可用→`dwarf`；否则→`none`（地址/DSO 级降级）。Tizen 走 §7。绝不静默 sudo，缺权限给明确补救步骤。
-2. **Capture**（`scripts/capture.py`）：启动型 `perf record -F <freq> -g --call-graph <mode> -- <command>`；附加型 `perf record -p <pid> -g -- sleep <dur>`。可选 `perf stat` 填 `summary_metrics`。**采前填 `run_context`**（CPU governor、affinity、thermal），按 `repeat_count`/`warmup_count` 多次采集（嵌入式波动大，单次不可信）。**静态 binary-size 扫描**（`readelf -S`/`size`/`bloaty`）。
-3. **Post-process**（`scripts/postprocess.py`）：`perf script --symfs <sysroot>` → 折叠栈 → 火焰图 SVG + speedscope JSON；`perf report --stdio` 解析 self%/children% 取 Top-N。
-4. **Diagnose**（由**宿主 Agent/LLM** 按 `references/bottleneck-taxonomy.md` 执行）：读每个热点源码，结合 `summary_metrics` 分类瓶颈，写 `diagnosis` 与 `candidate_optimizations`，并按 §6.4 rubric 评 `anchor_confidence`。**脚本只负责收集源码上下文、生成待诊断输入、校验输出；任何脚本都不得调用 LLM API（OpenAI/Anthropic/等）。**
-5. **Report**（`scripts/build_report.py`）：组装并**条件校验** `performance-findings.json`，渲染 `analysis-report.md`，`report_types` **由脚本据 `findings[].kind` 自动派生**（不信用户输入，见 §6.6）。
+1. **Preflight**（`scripts/preflight.py`）：检测 `perf` 版本、`perf_event_paranoid`、`CAP_PERFMON`、容器；检测符号/分离 debuginfo/build-id；探测设备可达性以决定采集模式（§3A）。**决定自适应 callgraph 策略**：frame pointer 可用→`fp`；否则 dwarf/CFI 可用→`dwarf`；否则→`none`（地址/DSO 级降级）。Tizen 走 §7。绝不静默 sudo，缺权限给明确补救步骤。
+2. **Capture**（`scripts/capture.py`，**需设备**）：经 Device Transport 在板上 `perf record -F <freq> -g --call-graph <mode> -- <command>`（或 `-p <pid>`）；可选 `perf stat` 填 `summary_metrics`；**采前填 `run_context`**，按 `repeat_count`/`warmup_count` 多次采集。产出 **Capture Bundle**（§3A.2）。**静态 binary-size 扫描**（`readelf -S`/`size`/`bloaty`，在 host 对构建产物做，不需设备）。
+3. **Symbolize + Attribute**（`scripts/postprocess.py`，**纯 host**）：用 bundle 的 build-id 匹配 debuginfo/`--symfs` 完成符号化；折叠栈 → 火焰图 + speedscope；`perf report` 取 Top-N；对每个热点做 **ownership 判定 + caller-attribution**（§3B），确定 `code_anchors`/`attribution_anchor`/`ownership`/`actionability`。
+4. **Diagnose**（由**宿主 Agent/LLM** 按 `references/bottleneck-taxonomy.md` 执行）：只对 `actionable` 的热点，读其**归属到你 repo 的真实源码**，结合 `summary_metrics` 分类瓶颈，写 `diagnosis` 与 `candidate_optimizations`，并按 §6.4 rubric 评 `anchor_confidence`。**脚本只负责收集源码上下文、生成待诊断输入、校验输出；任何脚本都不得调用 LLM API。**
+5. **Report**（`scripts/build_report.py`）：组装并**条件校验** `performance-findings.json`，渲染 `analysis-report.md`，`report_types` **由脚本据 `findings[].kind` 自动派生**（见 §6.6）。
 
 **Finding 类型**：v1 实现 `function-hotspot`（perf）+ `binary-size-large`（无基线，必带 `threshold`）+ `binary-size-regression`（两版 ELF 对比，必带 `baseline`+`delta`）。`memory-mapping`（smaps/PSS）留 v1.1。`.rodata`/`.eh_frame`/`.dynsym/.dynstr` 这类需基线才能判异常，衔接既有 LLVM/GCC size 分析。
 
 **binary-size-large 的 v1 默认 threshold 策略**（先能跑，后校准）：对 ELF 的 alloc section，满足任一即生成 finding——① top-n：最大的 Top 5 alloc sections；② section-ratio：单 section ≥ alloc 总大小的 10%；③ absolute：section ≥ 64KB。命中后把触发规则写入 `evidence.threshold`（如 `{"type":"top-n","value":5,"reason":"top 5 largest allocated sections"}`）。
+
+> **降噪默认**：`type=top-n` 触发的 finding 默认 `actionability=informational`（top-N 一定会命中,正常构建也会触发,做 patch 价值低）；`type=section-ratio` 与 `type=absolute` 默认 `actionability=actionable`。用户给了 `user_budget` 时 top-n 才升级 `actionable`。这条进 §3 与 §6.2 的语义说明。
+
+---
+
+## §3A 设备执行与数据搬运（perf 在开发板上跑）
+
+`perf` 在**开发板（Tizen 目标机）**上执行；代码、debuginfo、AI 都在 **host（开发服务器）**。本节钉清楚整条 host↔target 链。
+
+**认知前提**：AI 不直接碰硬件。"让 AI 控制开发板"= AI 产出一份 `capture-job.yaml`（采什么），`capture` 脚本经 **DeviceRunner** 在 target 上跑 perf 并 `scp` 拉回 **Capture Bundle**；AI 只负责编排（采什么、怎么分析），ssh/scp 由脚本做。
+
+```
+   HOST(开发服务器)                                 TARGET(Tizen 开发板)
+   ┌────────────────────────────┐                  ┌─────────────────────┐
+   │ AI 产 capture-job.yaml      │  ssh(指令)        │ runner.sh:          │
+   │ ↓                           │ ───────────────►  │   perf record/stat  │
+   │ DeviceRunner.shell          │                  │   perf script→folded │
+   │   .push(scp host→target)    │ ◄─────────────── │   收 kallsyms/maps/  │
+   │   .pull(scp target→host)    │  scp(回拷)         │   dso build-id     │
+   │ ↓                           │                  │   打 tar 成 Bundle  │
+   │ Capture Bundle(本节核心)     │                  │                     │
+   │ ↓ (以下全在 host 离线)       │                  └─────────────────────┘
+   │ 符号化 → 归属/归因(§3B) → AI 诊断 → findings 报告
+   └────────────────────────────┘
+```
+
+**整链 8 个 Stage（捋一遍，后面字段都指它们）**：
+
+```
+1 Plan        host  AI 产 capture-job.yaml(采什么、目标谁)
+2 Provision   host→target(ssh)  推 runner.sh + capture-job，探 perf 可用性/权限
+3 Execute     target(ssh)       perf record/stat；板上导 perf-script.txt(主源)
+4 Collect     target→host(scp)  拉回 Capture Bundle(自包含 tar)
+5 Symbolize   host              build-id→debuginfo→--symfs→file:line
+6 Attribute   host              ownership 判定 + caller-attribution(§3B)
+7 Diagnose    host              AI 读 repo 真实源码片段 + 指标 → 诊断
+8 Report      host              findings.json + analysis-report.md + 火焰图
+```
+
+**核心边界**：Stage 2–4 在 target；Stage 5–8 在 host。**target 不参与符号化和诊断**——它既没 debuginfo、也没源码、也没 AI。
+
+### §3A.1 DeviceRunner（远程执行器）
+
+`common/device_runner.py` 提供三个操作，仅此而已：
+
+```python
+class DeviceRunner:
+    def shell(cmd: str, timeout_s: int) -> CompletedRun   # ssh <profile> "cmd"
+    def push(local_path, remote_path) -> None              # scp host→target
+    def pull(remote_path, local_path) -> None              # scp target→host
+```
+
+**配置只来自 device profile yaml**，不接受散参数。每条 ssh/scp 必须进 tracing 日志（命令、返回码、耗时）。
+
+```yaml
+# .perf-skill/devices/board-a.yaml  —— 用户配一次
+name: board-a
+backend: ssh                          # ssh | sdb | local
+host: 192.168.1.42
+user: root                            # Tizen 镜像多为 root
+ssh_opts: "-i ~/.ssh/board_a -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5"
+scp_opts: "-q"
+remote_workdir: /tmp/perf-skill
+perf_path: /usr/bin/perf              # 按目标 Tizen 版本确认
+needs_sudo: false
+arch: aarch64                         # Stage 5 选 sysroot 用
+sysroot: ~/sysroots/board-a           # host 侧 sysroot
+debuginfo_roots:                      # host 上的 debuginfo 搜索路径
+  - ~/GBS-ROOT/local/repos/<profile>/<arch>/RPMS/debug
+  - /usr/lib/debug
+target_has_stackcollapse: false       # 板上是否装了 stackcollapse-perf.pl(默认 false,folded 由 host 生成)
+```
+
+> **Tizen 现实**：标准镜像未必预装 sshd——需要选 root 镜像或自己装 openssh。该写进 §7 的"先决条件"，不在文档假定。
+
+**Backends**：
+
+- `ssh`（主路径，本节默认）：用 OpenSSH `ssh`/`scp`，受益于 key 认证、ProxyJump、密钥透传等成熟特性；适合"host 与 target 在同一局域网"的开发场景。
+- `sdb`（退路）：Tizen 自带设备桥。`needs sshd in image` 不成立或要快速接入时用。`DeviceRunner` 内部用 `sdb shell/push/pull` 实现同样三个操作。
+- `local`（退化）：device=host，用于 x86 本地分析与 A1 把整条链先打通；ssh/scp 替换成本地 shell/cp。
+
+### §3A.2 capture-job.yaml（AI 产、脚本消费、随 Bundle 回带的复现凭证）
+
+AI 不直接拼 ssh 命令，而是产这份 yaml；脚本读它去构造执行：
+
+```yaml
+# .perf-skill/jobs/2026xxxx-bootup.yaml  —— AI 产出
+device: board-a
+target:
+  kind: pid | command | service            # 三选一
+  pid: 1234                                # 或
+  command: "/usr/bin/my-daemon --foo"      # 或
+  service: my-daemon.service               # systemd
+perf:
+  events: [cycles]
+  freq_hz: 999
+  callgraph: auto                          # auto: preflight 决定 fp/dwarf/none
+  duration_s: 30
+  repeat: 3
+  warmup: 1
+output:
+  bundle_name: bundle-2026xxxx.tar.gz
+```
+
+这份 yaml 落盘进 Bundle（见下）——**等于本次采集的复现凭证**，任何 review/换人接手都能在你板子上重放。
+
+### §3A.3 Capture Bundle（跨 target→host 的唯一自包含 artifact，10 件套）
+
+target 上 Stage 3 末尾打成 tar，Stage 4 经 `scp` 一次拉回；host 侧后续 Stage 不再回连板子。
+
+```
+bundle-<ts>.tar.gz
+├── manifest.json             # 自描述（schema 见 §6.7）
+├── capture-job.yaml          # 复现凭证（从 host 推下来再回带）
+├── perf.data                 # 原始
+├── perf-script.txt           # ★ host 符号化主源：perf script -F comm,pid,tid,time,ip,sym,dso（保留 IP/DSO/offset）
+├── out.folded                # 火焰图 / 粗粒度聚合用：perf script | stackcollapse-perf.pl
+├── perf-report.txt           # 板上 perf report --stdio（host 跨架构 perf 不可用时的退路）
+├── kallsyms                  # /proc/kallsyms 快照
+├── proc-<pid>-maps           # /proc/<pid>/maps（DSO 加载地址）
+├── dso-list.txt              # 进程加载 .so 列表 + 各自 build-id
+├── run-context.json          # CPU governor / affinity / thermal / repeat / warmup
+└── exec.log                  # 板上每条命令 + stdout/stderr + 退出码
+```
+
+**Symbolize 输入优先级（§3A 与 §6 都依这条）**：
+1. `perf-script.txt`（含 IP/DSO/offset，host 可独立做 build-id → debuginfo → file:line）→ **主源**
+2. `perf.data` + host perf + `--symfs`（host 装了能解 target 架构的 perf 才可用）→ 次源
+3. `out.folded` 仅用于火焰图与粗粒度聚合，**不作为 file:line 锚定的唯一依据**（折叠后 IP/DSO 多半丢失）
+4. `perf-report.txt` 退路（板上已符号化的文本，作 sanity check）
+
+> 设计原因：`perf script` 直接输出的并不是 folded 栈；folded 由 `stackcollapse-perf.pl`（FlameGraph 工具集）从 perf-script 转换。folded 把多条栈合并、丢掉 IP/DSO/offset，只剩符号名，**host 拿到 folded 后再做 file:line 符号化会缺信息**。所以 Bundle 保留 perf-script 原文作为主源，folded 单独存以便快速出火焰图。
+
+### §3A.4 执行流程（伪代码，看清楚就行）
+
+```
+host: capture.py 读 devices/board-a.yaml + jobs/<job>.yaml
+  ssh_target = DeviceRunner(profile=board-a)
+  ssh_target.shell("mkdir -p /tmp/perf-skill/<ts>")
+  ssh_target.push(capture-job.yaml, runner.sh, → /tmp/perf-skill/<ts>/)
+  ssh_target.shell("bash /tmp/perf-skill/<ts>/runner.sh")   # Stage 3 全在板上
+        ├─ perf record -F<freq> -g --call-graph <auto> [-p <pid>|-- <cmd>] -- sleep <dur>
+        ├─ perf script -i perf.data -F comm,pid,tid,time,ip,sym,dso > perf-script.txt  # ★ 符号化主源
+        # out.folded 默认由 host 在 Stage 5 基于 perf-script.txt 生成(不依赖 target 有 perl/FlameGraph)；
+        # 仅当 device profile 设 target_has_stackcollapse: true 时，target 端额外生成 out.folded:
+        #   ├─ perf script -i perf.data | stackcollapse-perf.pl > out.folded
+        ├─ perf report --stdio -i perf.data > perf-report.txt   # 退路
+        ├─ cp /proc/kallsyms ./kallsyms
+        ├─ cp /proc/<pid>/maps ./proc-<pid>-maps
+        ├─ perf buildid-list -i perf.data > dso-list.txt        # 首选,无需 binutils
+        │     # fallback: readelf -n / eu-readelf 取每个 DSO 的 build-id（嵌入式可能裁剪了 binutils）
+        ├─ 收 run-context（governor/affinity/thermal）→ run-context.json
+        └─ tar 打包成 bundle-<ts>.tar.gz
+  ssh_target.pull(/tmp/perf-skill/<ts>/bundle-<ts>.tar.gz, ./captures/)
+  ssh_target.shell("rm -rf /tmp/perf-skill/<ts>")   # 清场（默认开，可关）
+```
+
+**没有 ssh 时的退路**（诚实保留，不假装是一等公民）：
+- `backend: sdb`：DeviceRunner 内部把 ssh/scp 换成 `sdb shell/push/pull`，其它不变。
+- 手动模式：`capture.py --dry-run` 输出"该在板上跑的命令 + 回拷路径约定"，你拿过去手跑。Bundle 回到 host 后 Stage 5–8 不变。
+
+---
+
+## §3B 热点归属与归因（决定哪段代码才是"可优化点"）
+
+`perf` 的热点大量落在**你不拥有、不该改、可能没源码的代码**里（gobject/glib、libc、内核）。直接拿它们出 patch 会让 skill 失效。核心不是"找到热点对应代码"，而是**先判定每个热点属于谁、该不该由你改**。
+
+### §3B.1 按 ownership 分层（确定性，脚本做，不靠 AI 猜）
+
+复用 §3A Bundle 里的 `dso-list.txt`(DSO 路径 + build-id) 与 `proc-<pid>-maps`，对每个热点帧判定：
+
+```
+ownership 决策（优先级从上到下）：
+  build-id 在 host 的 owned_build_id_sources 里               → owned         (你的 GBS 构建)
+  DSO 路径匹配 owned_paths 通配                                → owned         (e.g. /usr/lib/myplugin/*)
+  DSO 路径匹配 third_party_paths 通配                          → third-party   (e.g. libgst*, libgobject*)
+  DSO 是 libc / ld / [kernel.kallsyms]                       → system
+  其它（无 build-id / 无符号）                                  → unknown
+```
+
+策略来自一份必备配置 `.perf-skill/ownership.yaml`（**M0 必须落地，不是未决项**）。Tizen + `/usr/lib` 量级模板，按你环境替换:
+
+```yaml
+# .perf-skill/ownership.yaml  —— 用户配一次,Codex 不要自己改
+owned_build_id_sources:
+  - ~/GBS-ROOT/local/repos/*/*/RPMS/                 # 你构出来的就是你的
+owned_paths:
+  - /usr/lib/myplugin/*.so*                          # 你的插件
+  - /usr/lib/<your-pkg>/*                            # 你的包
+  - /usr/bin/<your-binary>
+third_party_paths:                                   # Tizen 上典型框架库（按需增减）
+  - /usr/lib/libgst*.so*
+  - /usr/lib/libgstreamer-*.so*
+  - /usr/lib/libglib-2.0.so*
+  - /usr/lib/libgobject-2.0.so*
+  - /usr/lib/libgio-2.0.so*
+  - /usr/lib/libgthread-2.0.so*
+  - /usr/lib/libdbus-*.so*
+  - /usr/lib/libecore*.so*                           # EFL（若你的栈用得到）
+  - /usr/lib/libelementary*.so*
+  - /usr/lib64/libgst*.so*                           # aarch64 / 多 ABI 镜像走 lib64
+  - /usr/lib64/libg*.so*
+  - /lib/lib*.so*                                    # 部分系统库可能在 /lib
+  - /lib64/lib*.so*
+system_paths:
+  - /usr/lib/libc-*.so*
+  - /usr/lib/libpthread-*.so*
+  - /usr/lib/ld-*.so*
+  - /usr/lib64/libc-*.so*
+  - /usr/lib64/libpthread-*.so*
+  - /usr/lib64/ld-*.so*
+  - /lib*/libc-*.so*
+  - /lib*/ld-*.so*
+  - "[kernel.kallsyms]"
+```
+
+**规则**：通配用 glob；同一路径同时匹配 owned 与 third-party → owned 胜出（你能改的总优先）。任何决策必须在 Run Report（§11.2）里写出"为什么这么判"（命中哪条规则、build-id 是什么），不许 AI 私改。
+
+### §3B.2 caller-attribution（归因帧）
+
+**洞察：gobject 自己慢不可优化，但"你的代码高频调用 gobject"通常可优化。** 对 `third-party`/`system` 热点，脚本沿 callgraph **上溯**，标出栈里**第一个 `owned` 帧**作为 `attribution_anchor`（你能改的最近一帧）。例：`g_signal_emit` 很热 → 上溯发现是你的某 element 每帧发数千 signal → 真正能改的是你的代码，finding 锚到那里，`bottleneck_class` 标 `external-call-overhead`/`call-frequency`，优化方向是"减少调用/批量化/换 API"，而非"改 gobject"。
+
+**两种归因策略**（ownership.yaml 里 `attribution_strategy`，默认 `nearest-to-hotspot`）：
+- `nearest-to-hotspot`（默认）：自底向上找**最贴近热点**的 owned 帧。适合微观优化。
+- `nearest-to-entry`：自顶向下找**最贴近用户入口**的 owned 帧。适合架构级问题（"我们最外层入口就高频调用 framework"）。
+
+栈里穿插 owned/third-party/owned 的边界情况按所选策略走；Run Report 里要记录"选了哪个、为什么"。
+
+### §3B.3 AI 在确定性结果之上决定 finding 形态 + actionability 闸门
+
+脚本把"热点 + ownership + 归因帧源码 + 调用路径"打包给 AI，AI 决定：
+
+| 情形 | finding 锚点 | actionability |
+|------|-------------|---------------|
+| 热点 owned | 锚到热点本身 | `actionable` |
+| 热点 third-party，有 owned 归因帧 | 锚到 `attribution_anchor` | `actionable` |
+| 热点 third-party/system，整栈无 owned 帧 | 仅记录 | `not-actionable` |
+| 内核/unknown | 仅记录 | `informational` |
+
+**B 据此再加一道闸门（接 advisory-first 哲学）：`actionability != actionable` 的 finding 永远不出 diff。**
+
+> 诚实前提：这套强依赖**带符号的 callgraph**。若框架库无 debuginfo 或 `callgraph_mode=none`，归因帧找不到 → 脚本如实降级（`ownership=unknown`、`actionability=informational`），不硬编锚点。这也是为何 §3A 的"采 build-id + 尽量带 debuginfo + 选对 callgraph"是这一切的基础。
 
 ---
 
@@ -177,7 +427,8 @@ description: >-
 
 **流程**：
 
-1. **Ingest / 归一化**（`scripts/ingest.py` + 必要时 LLM 兜底）：格式探测→选 adapter：`analyzer-json`（直接用）、`google-benchmark`（结构化解析，有基线算 `regression_pct`）、`folded-stacks`（按符号聚合）、`generic-llm`（未知/自由格式，标低置信度）。逐份登记 `source_reports`，统一产出符合 schema 的 findings。
+1. **Ingest / 归一化**（`scripts/ingest.py`，**不调 LLM API**）：格式探测→选 adapter：`analyzer-json`（直接用）、`google-benchmark`（结构化解析，有基线算 `regression_pct`）、`folded-stacks`（按符号聚合）、`generic-llm`（未知/自由格式）。逐份登记 `source_reports`，统一产出符合 schema 的 findings。
+   **`generic-llm` 兜底协议（必须，否则违反 §13.1 第 2 条）**：脚本只做三件事——① 把原始文本写成 `prompts/<id>-normalize.prompt.md`（含 schema 片段 + 抽取指令）；② 等待宿主 Agent 把结果写回 `outputs/<id>-normalized.json`；③ 读回后过 `schema_validate`、标记 `source_format=generic-llm` 与低 confidence、进入 Anchor 与 Gate。**`ingest.py` 内部禁止 import 任何 LLM SDK**（openai/anthropic/...），违反则 CI 失败（§13.1）。
 2. **benchmark 对比规则**：给 `baseline_report` → name-match 配对 → `benchmark-regression`；没给 → 只出 `benchmark-latency`（无基线即无"太慢"证据，除非给 `perf_budget`，否则默认 advisory，不出 diff）；重命名用 `comparison.renamed_map` 兜。
 3. **Anchor**：findings 自带锚点直接用；仅符号/bench 名则在 `repo_root` 检索（符号→源码、bench 名→被测函数 `bench-name-map`）；按 §6.4 rubric 评 `anchor_confidence`；定位不到标记"不可出 diff"。
 4. **Gate**（见 §4.1）。
@@ -188,19 +439,25 @@ description: >-
 ### 4.1 Gate：拒绝出 patch 硬规则 + 状态语义
 
 ```
-能否出 diff（行为规则，不进 schema；anchor_confidence 是必要非充分条件）：
-  anchor_confidence < 0.7                                  -> advisory-only
+能否出 diff（行为规则，不进 schema；以 `effective_anchor`(§6.6 第 10 条) 为唯一锚点判断对象，不看 code_anchors[0]）：
+  finding.actionability != "actionable"                    -> 永远 advisory-only（§3B 归属/归因）
+  effective_anchor 为 null 或其 anchor_confidence < 0.7    -> advisory-only
   benchmark-latency 且无 perf_budget                        -> advisory-only
-  source_format=generic-llm                                -> 永远 advisory-only，
-      判定式：source_reports[ finding.source_ref.source_id ].source_format == "generic-llm"
-              且 chosen_anchor.resolution_method ∉ {dwarf, addr2line, ctags, compile-db}
-      （即自由格式 finding 必须经确定性方法二次锚定到 anchor_confidence≥0.7 才可出 diff；最易误抽）
-  patch_category ∈ {algorithm-change, concurrency-change}  -> 默认 advisory-only
+  source_format=generic-llm                                -> 默认 advisory-only；
+      仅当 effective_anchor.resolution_method ∈ {dwarf, addr2line, ctags, compile-db}
+            且 effective_anchor.anchor_confidence ≥ 0.7
+      时，才允许继续走后续 Gate（即自由格式经确定性方法二次锚定后可不再是终态降级）
   patch_category = api/semantic-change                     -> 不出 diff
+  patch_category ∈ {algorithm-change, concurrency-change}  -> 默认 advisory-only
+  patch_category = allocation-reduction                    -> 分两档：
+      纯局部（reserve / 预分配 / 避免重复 malloc-free / 不改对象生命周期与所有权）
+                                                              -> 可出 diff（needs-review 或 diff-ready）
+      涉及缓存 / 对象池 / 共享所有权 / 生命周期延长 / 线程可见性  -> advisory-only
   patch_category ∈ {local-micro-optimization, build-flag}  -> 可出 diff
 
 status：
-  diff-ready    = 有可应用 diff + chosen_anchor；anchor_confidence≥0.7；
+  diff-ready    = 有可应用 diff + chosen_anchor（= 该 finding 的 effective_anchor，schema_validate 强制写入）；
+                  effective_anchor.anchor_confidence≥0.7；
                   verification_plan.required=true 且 build_cmd 与 test_cmd 均非空（供人/CI 验证）。
                   注意：v1 不自动跑，validation_status 仍为 not-run，diff-ready ≠ 已验证收益。
   needs-review  = 有可应用 diff + chosen_anchor；但 verification_plan 缺失或 test_cmd 为空，或中等语义风险。
@@ -267,9 +524,12 @@ v2 才做闭环（沙箱/设备应用补丁 → 同负载重测 → 回填统计
     "kind":"function-hotspot|binary-size-large|binary-size-regression|benchmark-regression|benchmark-latency", // [v1]
     "title":"...",
     "source_ref":{ "source_id":"S1","locator":"$.benchmarks[3]","label":"BM_Decode/1024/real_time" }, // [v1] 对象化
+    "ownership":"owned|third-party|system|unknown",                                                  // [v1] §3B 归属
+    "actionability":"actionable|informational|not-actionable",                                       // [v1] §3B 闸门
     "evidence":{ "metric":"self_cpu_pct|children_pct|section_bytes|regression_pct|latency_ms",
                  "value":38.2,"unit":"percent|bytes|ms","samples":45000,"rank":1,
                  "callers":["..."],"callees":["..."],
+                 "hot_symbol":{ "symbol":"g_signal_emit","dso":"libgobject-2.0.so","ownership":"third-party" }, // [v1] 实际最热帧（可能非 owned）
                  "section":".rodata.str1.1","file":"/usr/lib/libxxx.so","symbol_or_object":"opt",
                  "baseline":{ "value":13024,"label":"gcc-build|main@abc123" },
                  "delta":{ "abs":46724,"pct":358.7,"direction":"increase|decrease" },
@@ -277,8 +537,12 @@ v2 才做闭环（沙箱/设备应用补丁 → 同负载重测 → 回填统计
                                "value":65536,"unit":"bytes","reason":"section exceeds 64KB / top-3" } },
     "code_anchors":[ { "symbol":"...","dso":"libxxx.so","file":"src/math.c","line_start":120,"line_end":156,
                        "language":"c","anchor_confidence":0.86,
-                       "resolution_method":"dwarf|addr2line|ctags|compile-db|grep|bench-name-map|llm","evidence":"..." } ],
-    "bottleneck_class":["cpu-bound","cache-unfriendly"],"diagnosis":"...","confidence":0.8,
+                       "resolution_method":"dwarf|addr2line|ctags|compile-db|grep|bench-name-map|caller-attribution|llm","evidence":"..." } ],
+    // 当 hot_symbol 非 owned 时，沿 callgraph 上溯到第一个 owned 帧；finding 的可改锚点指向它（§3B.2）：
+    "attribution_anchor":{ "symbol":"my_element_chain","dso":"libmyplugin.so","file":"src/element.c",
+                           "line_start":88,"line_end":120,"language":"c","anchor_confidence":0.82,
+                           "resolution_method":"caller-attribution","evidence":"hot g_signal_emit called from element.c:101" }, // [v1] 仅非 owned 热点
+    "bottleneck_class":["cpu-bound","cache-unfriendly","external-call-overhead","call-frequency"],"diagnosis":"...","confidence":0.8,
     "candidate_optimizations":[ { "id":"O1","strategy":"loop-tiling","expected_impact":"high","confidence":0.7,"risk":"medium","rationale":"..." } ]
   } ],
   "notes":"...","provenance":{ "generated_by":"...","version":"1.0.0","timestamp":"..." }
@@ -289,11 +553,21 @@ v2 才做闭环（沙箱/设备应用补丁 → 同负载重测 → 回填统计
 
 | kind | evidence 必填 | 其它必填 |
 |------|--------------|---------|
-| `function-hotspot` | `metric∈{self_cpu_pct,children_pct}`, `value`, `rank` | 顶层 `profiling`；≥1 `code_anchors` |
+| `function-hotspot` | `metric∈{self_cpu_pct,children_pct}`, `value`, `rank`；`evidence.hot_symbol` 必填 | 按 actionability/ownership 分三档（见下）；顶层 `profiling` 必填 |
 | `binary-size-large` | `metric=section_bytes`, `value`, `section`, `file`, **`threshold`** | — |
 | `binary-size-regression` | `section`, `file`, **`baseline`**, **`delta`** | — |
 | `benchmark-regression` | `metric∈{regression_pct,latency_ms}`, **`baseline`**, **`delta`** | 顶层 `comparison.baseline_report` 非空 |
 | `benchmark-latency` | `metric=latency_ms`, `value` | —（diff-ready 限制是 Gate 行为，不在 schema） |
+
+**`function-hotspot` 锚点要求按 ownership/actionability 分三档（消除与 §3B 降级策略的冲突）**：
+
+```
+actionability=actionable, ownership=owned         -> code_anchors[] 长度 ≥ 1
+actionability=actionable, ownership!=owned        -> attribution_anchor 必填且 anchor_confidence ≥ 0.7
+actionability ∈ {not-actionable, informational}   -> code_anchors[] 可空；evidence.hot_symbol 必填
+```
+
+这条由 `schema_validate.py` 第 9 条校验（§6.6）。`evidence.hot_symbol` 在所有档位都必填（即使 anchor 缺失，也至少知道是哪个符号热）。
 
 ### 6.3 输出契约 `suggestion-patch`
 
@@ -330,7 +604,9 @@ v2 才做闭环（沙箱/设备应用补丁 → 同负载重测 → 回填统计
 ```
 0.95  DWARF/build-id 精确到 file:line 且源码存在
 0.85  addr2line 精确到函数/行，源码路径可映射
+0.80  caller-attribution：callgraph 中存在唯一 owned 帧，DSO/build-id/path_mapping 可确认，file:line 可映射
 0.75  ctags/compile_commands 唯一函数定义
+0.65  caller-attribution：只有符号名/DSO,owned 帧可疑或多候选,需 LLM/人工选择
 0.65  grep 多候选，LLM 选一
 0.50  benchmark 名启发式匹配
 0.30  generic-llm 纯文本猜测
@@ -359,6 +635,46 @@ JSON Schema 只管单字段结构，下列跨字段规则由 `schema_validate.py
 4. **v1 不变量**：所有 patch `measured_impact==null`、`validation_status=="not-run"`。
 5. **source_ref 有效性**：每个 `findings[].source_ref.source_id` 必须存在于 `source_reports[].id`。
 6. **benchmark-regression 一致性**：若存在 `kind=benchmark-regression` 的 finding，则顶层 `comparison.baseline_report` 必须非空（与 §6.2 的 per-kind 校验互为冗余兜底；JSON Schema 跨层 `contains→top-level required` 不好写时以此为准）。
+7. **actionability 一致性（§3B）**：`ownership != "owned"` 的 finding，若无 `attribution_anchor`，则 `actionability` 必须为 `informational|not-actionable`（不得标 actionable）。
+8. **attribution 完整性**：`actionability=="actionable"` 且 `ownership != "owned"` 时，必须有 `attribution_anchor`（且其 `anchor_confidence≥0.7`），否则降级。
+9. **function-hotspot 锚点分档**（实现 §6.2 表后的三档规则）：`actionable+owned`→`code_anchors[].length≥1`；`actionable+!owned`→`attribution_anchor` 必填且 `anchor_confidence≥0.7`；`!actionable`→可无锚点但 `evidence.hot_symbol` 必填。
+10. **`effective_anchor` 派生规则**（B 的 Gate / `chosen_anchor` / patch 生成一律基于它，不准看 `code_anchors[0]`）：
+    ```
+    若 finding.attribution_anchor 存在               -> effective_anchor = attribution_anchor
+    否则若 code_anchors[] 非空                       -> effective_anchor = code_anchors 中
+                                                       (anchor_confidence 最高 → resolution_method 最可靠) 的那一项
+    否则                                            -> effective_anchor = null（finding 强制 advisory-only / 不出 diff）
+    resolution_method 可靠性序：dwarf > addr2line > ctags > compile-db > grep > bench-name-map > caller-attribution > llm
+    ```
+    `schema_validate.py` 在序列化产物时把 `effective_anchor` **显式写入 patch.chosen_anchor**（便于审计），不能让 Codex 在 B3 里临时挑。
+
+### 6.7 Capture Bundle manifest（§3A.2，Capture→Analyze 的内部交接格式）
+
+`capture` 阶段产出、`analyze` 阶段消费；自描述，使 host 侧分析不回连板子。
+
+```jsonc
+{
+  "schema_version":"capture-bundle/v1",
+  "backend":"ssh|sdb|local",                                         // §3A.1
+  "device":{ "name":"board-a","host":"192.168.1.42","arch":"aarch64","tizen_version":"..." },
+  "capture_job":"capture-job.yaml",                                  // §3A.2 复现凭证（同包带回）
+  "target":{ "kind":"pid|command|service","pid":1234,"cmdline":"...","service":null,"commit":"sha" },
+  "perf":{ "events":["cycles"],"freq_hz":999,"callgraph_mode":"fp|dwarf|none",
+           "duration_s":30,"repeat":3,"warmup":1 },
+  "run_context":{ "cpu_governor":"...","affinity":"...","thermal_state":"..." },   // 同 §6.1
+  "artifacts":{ "perf_data":"perf.data",
+                "perf_script":"perf-script.txt",                  // ★ host 符号化主源
+                "folded":"out.folded",                            // 火焰图/粗聚合用,非锚定主源
+                "perf_report":"perf-report.txt",                  // 退路
+                "kallsyms":"kallsyms","proc_maps":"proc-<pid>-maps","dso_list":"dso-list.txt",
+                "exec_log":"exec.log" },                          // 板上每条命令+返回码
+  "dsos":[ { "path":"/usr/lib/libgobject-2.0.so","build_id":"ab12…","load_addr":"0x7f01…",
+             "has_debuginfo_on_device":false } ],
+  "provenance":{ "captured_by":"perf-hotspot-analyzer/capture","timestamp":"..." }
+}
+```
+
+`dsos[].build_id` 是 host 侧符号化与 §3B 归属判定的依据；`backend` 记录用了哪种连入；`capture_job` 让 bundle 自带复现凭证（任何 review/换 AI 接手都能在你板子上重放）。
 
 ---
 
@@ -366,8 +682,10 @@ JSON Schema 只管单字段结构，下列跨字段规则由 `schema_validate.py
 
 > 命令为形态示意，**实施时按目标 Tizen 版本确认**；所有 target↔host↔debug↔source 映射写进 `tizen.path_mapping`，作为 B 锚定依据。
 
-1. **设备侧采集**：经 `sdb`（类比 adb）在目标板/模拟器 `perf record`，`sdb pull perf.data` 回 host；app 经 launcher/aul 起后按 pid 附加，daemon/service 经 systemd 附加。
-2. **host 侧解析**：目标常 stripped，符号在分离 `-debuginfo`/`-debugsource` RPM，用 **build-id**（`.note.gnu.build-id`）匹配；`perf report --symfs <sysroot> --kallsyms <target>` 符号化。
+**镜像先决条件（不绕过）**：本套件**默认走 ssh+scp**（§3A.1 `backend: ssh`）。Tizen 标准镜像通常**不预装 sshd**，需要：① root 镜像；② 镜像里启用或自己装 `openssh-server`；③ 在板上 `systemctl enable sshd && systemctl start sshd`；④ host 把公钥写到板上 `~/.ssh/authorized_keys`。完成这些前 ssh backend 不可用。**退路是 `backend: sdb`**（Tizen 自带，装了 tizen-studio 即有），DeviceRunner 把 ssh/scp 内部换成 `sdb shell/push/pull`，其它逻辑不变。
+
+1. **设备侧采集（§3A 执行）**：经 `DeviceRunner` 用 ssh/scp(或 sdb)在板上 `perf record / perf stat`；app 经 launcher/aul 起后按 pid 附加，daemon/service 经 systemd 附加。**板上必出 `perf-script.txt`(host 符号化主源)**放进 Capture Bundle（§6.7）;`out.folded` 默认由 host 在 Stage 5 基于 perf-script.txt 生成(target 不强依赖 Perl/FlameGraph),仅当 device profile 设 `target_has_stackcollapse: true` 时才在板上生成。
+2. **host 侧解析**：目标常 stripped，符号在分离 `-debuginfo`/`-debugsource` RPM，用 **build-id**（`.note.gnu.build-id`）匹配；**优先消费 `perf-script.txt` + `--symfs <sysroot>` 完成 file:line 符号化**;fallback 用 host perf 加 `--symfs` 解 `perf.data`(host 需有匹配 target 架构的 perf);`out.folded` 仅作火焰图与粗聚合,不作 file:line 锚定唯一依据。按 §3B 用 DSO 路径/build-id 做 ownership 判定与 caller-attribution。
 3. **sysroot 组装**：从 GBS 产物/debuginfo RPM 解出未 strip `.so`/调试文件拼成 symfs，映射 `/usr/lib`、`/usr/lib64`、`/usr/bin`。
 4. **GBS 构建**：`gbs build -A <arch>` 产 RPM（通常 `~/GBS-ROOT/.../RPMS/`）；patch 的 `verification_plan.build_cmd` 以 GBS 形式给出，`test_cmd` 为运行时测试（两者不同，v1 只填不跑）。
 5. **架构注意**：ARMv7 无 LBR、fp unwinding 需保留 frame pointer、dwarf 更重——由 §3 自适应策略定。
@@ -458,9 +776,16 @@ main 只经 PR 合并；每 milestone 完成开 PR，标题 `[<stage-id>] <name>
 
 ### 9.4 GitHub Actions CI `.github/workflows/ci.yml`
 
-ubuntu + python 3.11 → 装依赖(含 universal-ctags) → ruff + mypy → `pytest tests/unit --cov` → schema 契约测试(正/负向 fixtures) → 功能/e2e → `coverage --fail-under=80`。
+ubuntu + python 3.11 → 装依赖(含 universal-ctags) → ruff + mypy → **LLM SDK 静态扫**(以下命令命中即 fail，§13.1 第 2 条;扫主代码目录,**显式豁免 `tests/`**)：
+```bash
+grep -rnE '^\s*(from|import)\s+(openai|anthropic|google\.generativeai|cohere)\b' \
+  common/ skills/ workflows/ cli/ mcp/ integrations/ --include='*.py'
+# 任何命中即 CI fail；测试目录可独立写桩,不受此扫描约束
+```
+→ `pytest tests/unit --cov` → schema 契约测试(正/负向 fixtures + canonical/拷贝 SHA-256 一致) → 功能/e2e → `coverage --fail-under=80`。
 
 > 注：真机 perf 采集与 Tizen 交叉符号化无法在 CI 自动化；CI 用预采 fixture，真验证靠 §10/§14 的真机 guide。
+> **live perf 测试默认 skip**：x86 live `perf record` 在 GitHub Actions 容器内 `perf_event_paranoid` / 权限可能受限。默认 skip，本地或真机 guide 才跑；要在 CI 启用须设 `PERF_SKILL_ENABLE_LIVE_PERF=1` 环境变量。CI 必跑的是**预采 perf fixture** + 全部确定性逻辑。
 
 ---
 
@@ -494,7 +819,7 @@ ubuntu + python 3.11 → 装依赖(含 universal-ctags) → ruff + mypy → `pyt
 
 | Milestone | UT | 功能测试 | 其它 |
 |-----------|----|---------|------|
-| M0 schema | 条件校验正/负向全覆盖 | 12 fixtures 校验判定正确 | 两 skill 引用同一 schema |
+| M0 schema | 条件校验正/负向全覆盖 | 12 fixtures 校验判定正确 | canonical 在 `common/schemas/`；两 skill 拷贝 CI 字节一致 |
 | M0.5 fixtures | — | 正向全过、负向全拦 | 作为后续契约基线 |
 | A1 x86 perf | 30+，≥80% | 故意慢 C 样例 Top-1 命中 | callgraph_mode/run_context 如实 |
 | A2 binary-size | 15+，≥80% | large+regression 各 1 | delta 正确、与 size 一致 |
@@ -596,9 +921,18 @@ PerfHotSpotAnalyzer/                       # GitHub repo root
 │   ├── reviews/<stage-id>.md              # 每阶段 review 包
 │   ├── integration_guide.md               # §12 汇总
 │   └── archive/                           # v1~v3.1.1 历史
-├── common/{tracing.py, schema_validate.py, cli_base.py}      # §11 共享库
+├── common/{tracing.py, schema_validate.py, cli_base.py, device_runner.py,
+│           schemas/performance-findings.schema.json,            # canonical 单源(§2)
+│           schemas/suggestion-patch.schema.json,                # canonical 单源
+│           schemas/capture-bundle.schema.json}                  # §6.7
+│           # §11 共享库 + canonical schemas；device_runner=§3A.1
+├── .perf-skill/                          # 用户配置（每环境/每板一份，进 .gitignore 看需要）
+│   ├── devices/<name>.yaml               # §3A.1 device profile（ssh/sdb/local）
+│   ├── jobs/<ts>-<tag>.yaml              # §3A.2 capture-job（AI 产，落盘留存）
+│   └── ownership.yaml                    # §3B.1 owned/third-party/system 路径清单
 ├── skills/
 │   ├── perf-hotspot-analyzer/{SKILL.md, schemas/, scripts/{preflight,capture,postprocess,build_report,flamegraph}.py,
+│   │     target-side/runner.sh,          # §3A.4 板上执行脚本，push 到 target/tmp 跑
 │   │     references/{bottleneck-taxonomy.md,perf-cheatsheet.md,adapters/tizen-gbs.md}, evals/}
 │   └── perf-suggestion-patch/{SKILL.md, schemas/{performance-findings,suggestion-patch}.schema.json,
 │         scripts/{ingest,make_patch}.py,
@@ -614,7 +948,7 @@ PerfHotSpotAnalyzer/                       # GitHub repo root
 ### §13.1 Implementation Guardrails（Codex 实施硬规则，防扩范围/防自由发挥）
 
 1. 不实现 v1.1/v2 backlog，除非当前 milestone 明确需要。
-2. **任何 Python 代码不得调用 LLM API**（OpenAI/Anthropic/等）；诊断/方案推理由宿主 Agent 提供。
+2. **任何 Python 代码不得调用 LLM API**（OpenAI/Anthropic/等）；诊断/方案推理由宿主 Agent 提供。具体禁条：主代码目录(`common/`、`skills/`、`workflows/`、`cli/`、`mcp/`、`integrations/`)任何文件**不得 `import` 或 `from … import` LLM SDK**（openai/anthropic/google.generativeai/cohere/…），`tests/` 豁免。CI 静态扫(具体命令见 §9.4)，命中即 fail。`generic-llm` 兜底走"脚本写 prompt → 宿主 Agent 写回 json → 脚本读回校验"三步（见 §4 流程第 1 点与 §4.1）。
 3. **不自动 apply 生成的补丁到用户分支**（只产出 `.patch`/advisory）。
 4. v1 不得把 `measured_impact` 写成非 null。
 5. `advisory-only` 不得生成 `diff`。
@@ -630,11 +964,11 @@ A 线（x86 优先，Tizen 殿后）与 B 线（用 M0.5 fixture/外部样例独
 
 | 里程碑 | 内容 | 线 | DoD |
 |--------|------|----|-----|
-| **M0** | 仓库骨架 + 两份 schema(含 per-kind/per-status 条件校验) + 校验器 + 共享 tracing + CLI 骨架 | 共享 | 条件校验正/负向正确；两 skill 引用同一 schema、互不 import |
-| **M0.5** | Golden fixtures(正①-⑦ + 负⑧-⑫) | 共享 | 正向全过、负向全拦；先于业务脚本 |
-| **A1** | x86 perf → findings(preflight/capture/postprocess/flamegraph/diagnose/report) | A | Top-1 命中；callgraph_mode/run_context 如实；报告过校验 |
+| **M0** | 仓库骨架 + 两份 schema(含 per-kind/per-status 条件校验) + 校验器 + 共享 tracing + CLI 骨架 | 共享 | 条件校验正/负向正确；canonical 在 `common/schemas/`，两 skill 拷贝经 CI 字节一致校验、互不 import |
+| **M0.5** | Golden fixtures(正①-⑦ + 负⑧-⑫) + capture-bundle manifest 样例 + ownership/attribution/actionability 各形态样例 | 共享 | 正向全过、负向全拦（含 §6.6 第 7/8 条）；先于业务脚本 |
+| **A1** | x86 perf → findings；Capture/Analyze 两阶段(§3A，x86 用 `backend: local` 跑 DeviceRunner，把"远程执行链"先打通) + ownership.yaml 配齐 + caller-attribution(§3B) | A | Top-1 命中；产出 capture-bundle(local backend)；第三方热点正确归因或标 not-actionable；报告过校验 |
 | **A2** | binary-size finding(large + regression) | A | section_bytes 与 size 一致；regression delta 正确 |
-| **A3** | Tizen 交叉符号化(symfs/build-id + tizen.path_mapping)（非阻塞，最后） | A | Tizen perf.data 锚到 file:line，confidence≥0.7 |
+| **A3** | Tizen 设备采集：**ssh+scp 主路径**（device profile + capture-job 落地，DeviceRunner ssh backend）+ 交叉符号化（symfs/build-id + tizen.path_mapping）；`sdb` backend 作退路 | A | ssh backend 端到端：host→target 推 runner.sh→target 跑 perf+导 perf-script.txt→scp 拉回 bundle→host 基于 perf-script.txt + symfs 锚到 file:line，confidence≥0.7；sdb backend smoke 通 |
 | **B1** | ingest(analyzer-json) + anchor + rubric 评分 + 仅 advisory 输出 | B | 锚定正确、按 rubric 评分 |
 | **B2** | ingest(google-benchmark 含 comparison / folded / generic-llm) | B | 有/无基线分别 regression/latency；自由格式 generic-llm 低置信度 |
 | **B3** | patch 生成(Gate + status/validation_status + chosen_anchor + files_touched_policy) | B | micro-opt 出可 apply diff(diff-ready/needs-review)；风险项 advisory 无 diff；measured_impact=null |
@@ -666,11 +1000,14 @@ A 线（x86 优先，Tizen 殿后）与 B 线（用 M0.5 fixture/外部样例独
 
 ### 15.2 未决问题
 
-1. 目标 Tizen 版本的精确 `gbs`/`sdb`/`perf`/GBS-ROOT 路径（待用户提供，写入 §7 与 path_mapping）。
+1. 目标 Tizen 版本的精确 `gbs`/`perf` 路径与 GBS-ROOT 布局（待用户提供，写入 §7 与 path_mapping）。
 2. Compiling Agent 接入 API（待用户提供，定 §12.3 实方案）。
 3. anchor_confidence rubric 各档阈值的 fixture 校准。
 4. binary-size-large 的 `threshold` 默认策略**已定**为 top-n / section-ratio / absolute 三规则并行（见 §3）；后续仅据 fixtures 校准阈值，非阻塞。
 5. run-report 性能基线的具体目标值（M1/B1 实测后定）。
+6. **Tizen 镜像 sshd 部署要求**（§7 先决条件）：选用 root 镜像 + 装 openssh-server + 起 sshd + 公钥分发。无法满足时切 `backend: sdb` 退路。
+7. 框架库无 debuginfo / `callgraph_mode=none` 时的降级行为细则（默认 ownership=unknown、actionability=informational，不硬编锚点；阈值随实测调整）。
+8. `ownership.yaml` 的真实工程值校准（§3B.1 模板已给 `/usr/lib/*` 量级；具体 owned_paths 按你的 vendor 路径替换）。
 
 ## §16 附录
 
@@ -685,6 +1022,10 @@ A 线（x86 优先，Tizen 殿后）与 B 线（用 M0.5 fixture/外部样例独
 - **symfs**：host 侧符号化用的 sysroot 根。
 - **GBS**：Git Build System，Tizen 本地构建。
 - **sdb**：Tizen 设备桥(类比 adb)。
+- **Capture Bundle**：板上采集产出的自包含 artifact（10 件套：manifest + capture-job + perf.data + **perf-script.txt(host 符号化主源)** + out.folded + perf-report + kallsyms + proc-maps + dso-list + run-context + exec.log），跨 device→host 的唯一交接物（§3A.3/§6.7）。
+- **ownership**：热点帧的归属（owned / third-party / system / unknown），决定该不该由你改（§3B）。
+- **caller-attribution / attribution_anchor**：非 owned 热点沿调用栈上溯到的第一个 owned 帧，即"你能改的最近一帧"（§3B.2）。
+- **actionability**：finding 是否可作代码级优化（actionable / informational / not-actionable）；非 actionable 永不出 diff。
 - **advisory-only**：不出可应用 diff，只给建议的补丁状态。
 - **dev_memory**：milestone 开发产物记录，支持接续与追溯。
 
@@ -698,4 +1039,4 @@ v1~v3.1.1（含多轮 ChatGPT review）归档于 `docs/archive/`，仅供决策�
 
 ---
 
-**v1.0.2 文档完结。Codex 实施基线已冻结，进入实施阶段。启动见 `docs/CODEX_PROMPT.md`。**
+**v1.0.6 文档完结。Codex 实施基线已冻结，进入实施阶段。启动见 `docs/CODEX_PROMPT.md`。**
