@@ -1,0 +1,2 @@
+3f2a1dbe /usr/lib64/myplugin/libdemo-plugin.so
+8a7c55f0 /usr/lib64/libgobject-2.0.so.0

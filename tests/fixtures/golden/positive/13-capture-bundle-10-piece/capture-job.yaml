@@ -1,0 +1,13 @@
+schema_version: capture-job/v1
+device: tizen-board-a
+target:
+  kind: pid
+  pid: 4242
+perf:
+  events: [cycles]
+  freq_hz: 999
+  duration_s: 30
+  repeat: 3
+  warmup: 1
+output:
+  bundle_name: bundle-20260602-demo.tar.gz

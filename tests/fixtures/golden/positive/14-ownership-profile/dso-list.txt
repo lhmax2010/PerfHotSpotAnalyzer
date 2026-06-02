@@ -1,0 +1,1 @@
+3f2a1dbe /usr/lib/myplugin/libdemo-plugin.so

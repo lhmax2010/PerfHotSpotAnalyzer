@@ -15,6 +15,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PERFORMANCE_FINDINGS = "performance-findings"
 SUGGESTION_PATCH = "suggestion-patch"
+CAPTURE_BUNDLE = "capture-bundle"
+
+ANCHOR_METHOD_RELIABILITY = {
+    "dwarf": 0,
+    "addr2line": 1,
+    "ctags": 2,
+    "compile-db": 3,
+    "grep": 4,
+    "bench-name-map": 5,
+    "caller-attribution": 6,
+    "llm": 7,
+}
 
 KIND_TO_REPORT_TYPE = {
     "function-hotspot": "hotspot-profile",
@@ -26,27 +38,22 @@ KIND_TO_REPORT_TYPE = {
 
 DEFAULT_SCHEMA_PATHS = {
     PERFORMANCE_FINDINGS: REPO_ROOT
-    / "skills"
-    / "perf-hotspot-analyzer"
+    / "common"
     / "schemas"
     / "performance-findings.schema.json",
-    SUGGESTION_PATCH: REPO_ROOT
-    / "skills"
-    / "perf-suggestion-patch"
-    / "schemas"
-    / "suggestion-patch.schema.json",
+    SUGGESTION_PATCH: REPO_ROOT / "common" / "schemas" / "suggestion-patch.schema.json",
+    CAPTURE_BUNDLE: REPO_ROOT / "common" / "schemas" / "capture-bundle.schema.json",
 }
 
 SKILL_SCHEMA_PATHS = {
     ("perf-hotspot-analyzer", PERFORMANCE_FINDINGS): DEFAULT_SCHEMA_PATHS[
         PERFORMANCE_FINDINGS
     ],
-    ("perf-suggestion-patch", PERFORMANCE_FINDINGS): REPO_ROOT
-    / "skills"
-    / "perf-suggestion-patch"
-    / "schemas"
-    / "performance-findings.schema.json",
+    ("perf-suggestion-patch", PERFORMANCE_FINDINGS): DEFAULT_SCHEMA_PATHS[
+        PERFORMANCE_FINDINGS
+    ],
     ("perf-suggestion-patch", SUGGESTION_PATCH): DEFAULT_SCHEMA_PATHS[SUGGESTION_PATCH],
+    ("perf-hotspot-analyzer", CAPTURE_BUNDLE): DEFAULT_SCHEMA_PATHS[CAPTURE_BUNDLE],
 }
 
 
@@ -78,6 +85,8 @@ def load_json(path: str | Path) -> Any:
 
 
 def detect_document_type(document: Mapping[str, Any]) -> str:
+    if document.get("schema_version") == "capture-bundle/v1":
+        return CAPTURE_BUNDLE
     if "patches" in document:
         return SUGGESTION_PATCH
     if "findings" in document:
@@ -164,6 +173,8 @@ def _semantic_issues(document: Mapping[str, Any], document_type: str) -> list[Va
         return _performance_findings_semantic_issues(document)
     if document_type == SUGGESTION_PATCH:
         return _suggestion_patch_semantic_issues(document)
+    if document_type == CAPTURE_BUNDLE:
+        return []
     return [
         ValidationIssue(
             rule="document-type",
@@ -240,6 +251,8 @@ def _performance_findings_semantic_issues(
                 )
             )
 
+        issues.extend(_finding_actionability_issues(finding, index))
+
     has_benchmark_regression = any(
         isinstance(finding, Mapping)
         and finding.get("kind") == "benchmark-regression"
@@ -258,6 +271,119 @@ def _performance_findings_semantic_issues(
                 message="benchmark-regression findings require a non-empty baseline_report",
             )
         )
+
+    return issues
+
+
+def derive_effective_anchor(finding: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    attribution_anchor = finding.get("attribution_anchor")
+    if isinstance(attribution_anchor, Mapping):
+        return attribution_anchor
+
+    code_anchors = finding.get("code_anchors", [])
+    if not isinstance(code_anchors, list):
+        return None
+    anchors = [anchor for anchor in code_anchors if isinstance(anchor, Mapping)]
+    if not anchors:
+        return None
+
+    return max(
+        anchors,
+        key=lambda anchor: (
+            _anchor_confidence(anchor),
+            -ANCHOR_METHOD_RELIABILITY.get(str(anchor.get("resolution_method")), 999),
+        ),
+    )
+
+
+def _finding_actionability_issues(
+    finding: Mapping[str, Any],
+    index: int,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    kind = finding.get("kind")
+    ownership = finding.get("ownership")
+    actionability = finding.get("actionability")
+    attribution_anchor = finding.get("attribution_anchor")
+    has_attribution_anchor = isinstance(attribution_anchor, Mapping)
+
+    if kind != "function-hotspot":
+        return issues
+
+    if (
+        ownership is not None
+        and ownership != "owned"
+        and not has_attribution_anchor
+        and actionability == "actionable"
+    ):
+        issues.append(
+            ValidationIssue(
+                rule="actionability-consistency",
+                path=f"$.findings[{index}].actionability",
+                message=(
+                    "non-owned actionable findings require attribution_anchor; "
+                    "otherwise actionability must be informational or not-actionable"
+                ),
+            )
+        )
+
+    if actionability == "actionable" and ownership != "owned":
+        if not has_attribution_anchor:
+            issues.append(
+                ValidationIssue(
+                    rule="attribution-completeness",
+                    path=f"$.findings[{index}].attribution_anchor",
+                    message="actionable non-owned findings require attribution_anchor",
+                )
+            )
+        elif _anchor_confidence(attribution_anchor) < 0.7:
+            issues.append(
+                ValidationIssue(
+                    rule="attribution-completeness",
+                    path=f"$.findings[{index}].attribution_anchor.anchor_confidence",
+                    message="attribution_anchor confidence must be at least 0.7",
+                )
+            )
+
+    evidence = finding.get("evidence")
+    hot_symbol = evidence.get("hot_symbol") if isinstance(evidence, Mapping) else None
+    if not isinstance(hot_symbol, Mapping):
+        issues.append(
+            ValidationIssue(
+                rule="function-hotspot-anchoring",
+                path=f"$.findings[{index}].evidence.hot_symbol",
+                message="function-hotspot findings require evidence.hot_symbol",
+            )
+        )
+
+    if actionability == "actionable" and ownership == "owned":
+        code_anchors = finding.get("code_anchors")
+        if not isinstance(code_anchors, list) or not code_anchors:
+            issues.append(
+                ValidationIssue(
+                    rule="function-hotspot-anchoring",
+                    path=f"$.findings[{index}].code_anchors",
+                    message="actionable owned function-hotspot findings require code_anchors",
+                )
+            )
+
+    if actionability == "actionable" and ownership != "owned":
+        if not has_attribution_anchor:
+            issues.append(
+                ValidationIssue(
+                    rule="function-hotspot-anchoring",
+                    path=f"$.findings[{index}].attribution_anchor",
+                    message="actionable non-owned function-hotspot findings require attribution_anchor",
+                )
+            )
+        elif _anchor_confidence(attribution_anchor) < 0.7:
+            issues.append(
+                ValidationIssue(
+                    rule="function-hotspot-anchoring",
+                    path=f"$.findings[{index}].attribution_anchor.anchor_confidence",
+                    message="attribution_anchor confidence must be at least 0.7",
+                )
+            )
 
     return issues
 
@@ -335,6 +461,13 @@ def _source_id(finding: Mapping[str, Any]) -> Any:
     return None
 
 
+def _anchor_confidence(anchor: Mapping[str, Any]) -> float:
+    confidence = anchor.get("anchor_confidence", 0)
+    if isinstance(confidence, int | float):
+        return float(confidence)
+    return 0.0
+
+
 def _json_path(parts: Iterable[Any]) -> str:
     path = "$"
     for part in parts:
@@ -350,7 +483,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("document", help="JSON document to validate")
     parser.add_argument(
         "--document-type",
-        choices=[PERFORMANCE_FINDINGS, SUGGESTION_PATCH],
+        choices=[PERFORMANCE_FINDINGS, SUGGESTION_PATCH, CAPTURE_BUNDLE],
         help="Document type. Inferred when omitted.",
     )
     parser.add_argument("--schema", help="Override schema path")

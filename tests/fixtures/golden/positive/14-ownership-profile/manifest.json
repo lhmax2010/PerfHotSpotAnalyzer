@@ -1,0 +1,21 @@
+{
+  "schema_version": "capture-bundle/v1",
+  "backend": "local",
+  "device": {"name": "host", "arch": "x86_64"},
+  "capture_job": "capture-job.yaml",
+  "target": {"kind": "command", "pid": null, "cmdline": "./demo", "service": null, "commit": "abc123"},
+  "perf": {"events": ["cycles"], "freq_hz": 999, "callgraph_mode": "fp", "duration_s": 1, "repeat": 1, "warmup": 0},
+  "run_context": {"cpu_governor": "unknown", "affinity": "0", "thermal_state": "unknown"},
+  "artifacts": {
+    "perf_data": "perf.data",
+    "perf_script": "perf-script.txt",
+    "folded": "out.folded",
+    "perf_report": "perf-report.txt",
+    "kallsyms": "kallsyms",
+    "proc_maps": "proc-123-maps",
+    "dso_list": "dso-list.txt",
+    "run_context": "run-context.json",
+    "exec_log": "exec.log"
+  },
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

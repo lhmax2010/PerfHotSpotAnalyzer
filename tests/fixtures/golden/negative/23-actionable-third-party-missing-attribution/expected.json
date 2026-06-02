@@ -1,0 +1,11 @@
+{
+  "fixture_id": "negative-23",
+  "document": "performance-findings.json",
+  "document_type": "performance-findings",
+  "valid": false,
+  "expected_rules": [
+    "actionability-consistency",
+    "attribution-completeness",
+    "function-hotspot-anchoring"
+  ]
+}

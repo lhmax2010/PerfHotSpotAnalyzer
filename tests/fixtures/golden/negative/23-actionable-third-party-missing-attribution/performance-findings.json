@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["hotspot-profile"],
+  "target": {
+    "name": "bad-attribution",
+    "kind": "process",
+    "repo_root": "/repo/demo",
+    "commit": "abc123",
+    "build_config": "gbs",
+    "platform": {"os": "tizen", "arch": "aarch64"}
+  },
+  "source_reports": [
+    {"id": "S1", "path": "perf-script.txt", "source_format": "perf-script", "parser": "structured", "confidence": 0.95}
+  ],
+  "run_context": {"device": "target-board", "cpu_governor": "performance", "core_count": 4, "repeat_count": 3, "warmup_count": 1},
+  "profiling": {"tool": "perf", "events": ["cycles"], "callgraph_mode": "fp"},
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "function-hotspot",
+      "title": "Invalid actionable third-party hotspot",
+      "source_ref": {"source_id": "S1", "locator": "sample:4", "label": "g_signal_emit"},
+      "ownership": "third-party",
+      "actionability": "actionable",
+      "evidence": {
+        "metric": "self_cpu_pct",
+        "value": 20.0,
+        "unit": "percent",
+        "rank": 1,
+        "hot_symbol": {"symbol": "g_signal_emit", "dso": "/usr/lib64/libgobject-2.0.so.0", "ownership": "third-party"}
+      },
+      "diagnosis": "Invalid fixture: no owned attribution frame is present.",
+      "confidence": 0.8
+    }
+  ],
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

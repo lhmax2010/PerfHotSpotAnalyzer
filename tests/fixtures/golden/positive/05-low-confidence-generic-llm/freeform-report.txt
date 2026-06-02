@@ -1,3 +1,2 @@
 The report says lookup is slow around the index search path, but it does not
 include a profiler symbol or benchmark baseline.
-

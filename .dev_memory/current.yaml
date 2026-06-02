@@ -1,7 +1,7 @@
 schema_version: 1
 shared_current: m0.5_fixtures
 shared_last_completed: m0.5_fixtures
-session_count: 2
+session_count: 3
 milestones:
   m0_schema:
     status: completed
@@ -65,10 +65,10 @@ lines:
     last_commit: null
     review_status: not-started
 next_steps:
-  - "Wait for M0.5 review. After M0 and M0.5 are merged to main, start A1 and/or B1 from reviewed main."
+  - "Wait for M0.5 v1.0.6 review. After M0/M0.5 are merged to main, start A1 and/or B1 from reviewed main."
 blocked_on: null
 notes: |
-  M0.5 implementation is complete on stage/m0.5-fixtures. This branch is based
-  on stage/m0-schema because main had not yet received M0 when the user asked to
-  continue. A and B line pointers are initialized but must not advance until M0
-  and M0.5 are reviewed.
+  M0.5 implementation is refreshed for DESIGN v1.0.6 on stage/m0.5-fixtures.
+  The branch includes the earlier M0/M0.5 work plus main's v1.0.6 DESIGN update.
+  A and B line pointers are initialized but must not advance until M0.5 is
+  reviewed.

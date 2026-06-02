@@ -472,6 +472,31 @@
         "symbol_or_object": {
           "type": "string"
         },
+        "hot_symbol": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "symbol",
+            "dso",
+            "ownership"
+          ],
+          "properties": {
+            "symbol": {
+              "type": "string"
+            },
+            "dso": {
+              "type": "string"
+            },
+            "ownership": {
+              "enum": [
+                "owned",
+                "third-party",
+                "system",
+                "unknown"
+              ]
+            }
+          }
+        },
         "baseline": {
           "$ref": "#/$defs/baseline"
         },
@@ -525,6 +550,7 @@
             "compile-db",
             "grep",
             "bench-name-map",
+            "caller-attribution",
             "llm"
           ]
         },
@@ -599,6 +625,21 @@
         "source_ref": {
           "$ref": "#/$defs/source_ref"
         },
+        "ownership": {
+          "enum": [
+            "owned",
+            "third-party",
+            "system",
+            "unknown"
+          ]
+        },
+        "actionability": {
+          "enum": [
+            "actionable",
+            "informational",
+            "not-actionable"
+          ]
+        },
         "evidence": {
           "$ref": "#/$defs/evidence"
         },
@@ -613,6 +654,9 @@
           "items": {
             "type": "string"
           }
+        },
+        "attribution_anchor": {
+          "$ref": "#/$defs/code_anchor"
         },
         "diagnosis": {
           "type": "string"
@@ -642,15 +686,13 @@
             }
           },
           "then": {
-            "required": [
-              "code_anchors"
-            ],
             "properties": {
               "evidence": {
                 "required": [
                   "metric",
                   "value",
-                  "rank"
+                  "rank",
+                  "hot_symbol"
                 ],
                 "properties": {
                   "metric": {
@@ -660,9 +702,6 @@
                     ]
                   }
                 }
-              },
-              "code_anchors": {
-                "minItems": 1
               }
             }
           }

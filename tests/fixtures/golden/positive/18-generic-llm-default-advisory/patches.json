@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "source_reports": [
+    {"id": "S1", "path": "freeform-report.txt", "source_format": "generic-llm", "parser": "generic-llm", "confidence": 0.3}
+  ],
+  "patches": [
+    {
+      "id": "P001",
+      "finding_id": "F001",
+      "source_ref": {"source_id": "S1", "locator": "paragraph:1", "label": "slow lookup"},
+      "patch_category": "local-micro-optimization",
+      "strategy": "unknown",
+      "recommendation": {
+        "suggested_locations": ["src/index.c:1"],
+        "idea": "Re-anchor the free-form report with ctags, compile-db, addr2line, or DWARF before proposing a diff.",
+        "risk": "low"
+      },
+      "files_touched": [],
+      "files_touched_policy": {"allowed": false, "reason": "generic-llm has no deterministic anchor", "risk": "medium"},
+      "expected_impact": {"level": "unknown", "estimate": "not estimated", "confidence": 0.2},
+      "measured_impact": null,
+      "side_effects": {"runtime_memory": "unknown"},
+      "risk": {"level": "medium", "notes": "Free-form source remains low confidence."},
+      "rationale": "generic-llm defaults to advisory-only without deterministic re-anchoring.",
+      "status": "advisory-only",
+      "validation_status": "not-run"
+    }
+  ],
+  "apply_instructions": "Do not apply automatically.",
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

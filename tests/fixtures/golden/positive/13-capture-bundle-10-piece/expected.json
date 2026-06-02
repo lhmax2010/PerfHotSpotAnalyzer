@@ -1,0 +1,28 @@
+{
+  "fixture_id": "positive-13",
+  "document": "manifest.json",
+  "document_type": "capture-bundle",
+  "valid": true,
+  "expected_rules": [],
+  "required_files": [
+    "manifest.json",
+    "capture-job.yaml",
+    "perf.data",
+    "perf-script.txt",
+    "out.folded",
+    "perf-report.txt",
+    "kallsyms",
+    "proc-4242-maps",
+    "dso-list.txt",
+    "run-context.json",
+    "exec.log"
+  ],
+  "text_contains": {
+    "perf-script.txt": [
+      "demo-decoder 4242/4242",
+      "g_signal_emit+0x2a",
+      "/usr/lib64/libgobject-2.0.so.0",
+      "my_element_chain+0x44"
+    ]
+  }
+}

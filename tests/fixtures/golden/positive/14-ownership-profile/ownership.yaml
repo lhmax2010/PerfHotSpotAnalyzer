@@ -1,0 +1,31 @@
+owned_build_id_sources:
+  - ~/GBS-ROOT/local/repos/*/*/RPMS/
+owned_paths:
+  - /usr/lib/myplugin/*.so*
+  - /usr/lib/<your-pkg>/*
+  - /usr/bin/<your-binary>
+third_party_paths:
+  - /usr/lib/libgst*.so*
+  - /usr/lib/libgstreamer-*.so*
+  - /usr/lib/libglib-2.0.so*
+  - /usr/lib/libgobject-2.0.so*
+  - /usr/lib/libgio-2.0.so*
+  - /usr/lib/libgthread-2.0.so*
+  - /usr/lib/libdbus-*.so*
+  - /usr/lib/libecore*.so*
+  - /usr/lib/libelementary*.so*
+  - /usr/lib64/libgst*.so*
+  - /usr/lib64/libg*.so*
+  - /lib/lib*.so*
+  - /lib64/lib*.so*
+system_paths:
+  - /usr/lib/libc-*.so*
+  - /usr/lib/libpthread-*.so*
+  - /usr/lib/ld-*.so*
+  - /usr/lib64/libc-*.so*
+  - /usr/lib64/libpthread-*.so*
+  - /usr/lib64/ld-*.so*
+  - /lib*/libc-*.so*
+  - /lib*/ld-*.so*
+  - "[kernel.kallsyms]"
+attribution_strategy: nearest-to-hotspot

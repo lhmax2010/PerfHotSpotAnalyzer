@@ -1,0 +1,1 @@
+demo 123/123 1.0: 1 owned_symbol+0x1 (/usr/lib/myplugin/libdemo-plugin.so)

@@ -9,3 +9,8 @@
   behavior is not implemented until B milestones.
 - No coverage report is configured yet; M0.5 DoD focuses on fixture pass/reject
   behavior.
+- `tools/check_no_llm_sdk_imports.py` remains as a Python helper for tests, while
+  CI uses the v1.0.6 grep shell script `tools/check_no_llm_sdk_imports.sh`.
+- The capture bundle fixture uses a small placeholder `perf.data`; the
+  `perf-script.txt` content is the meaningful host-symbolization sample for
+  M0.5.

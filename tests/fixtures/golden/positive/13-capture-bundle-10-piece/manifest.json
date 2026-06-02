@@ -1,0 +1,47 @@
+{
+  "schema_version": "capture-bundle/v1",
+  "backend": "ssh",
+  "device": {
+    "name": "tizen-board-a",
+    "host": "192.168.1.42",
+    "arch": "aarch64",
+    "tizen_version": "8.0"
+  },
+  "capture_job": "capture-job.yaml",
+  "target": {
+    "kind": "pid",
+    "pid": 4242,
+    "cmdline": "/usr/bin/demo-decoder --input sample.bin",
+    "service": null,
+    "commit": "abc123"
+  },
+  "perf": {
+    "events": ["cycles"],
+    "freq_hz": 999,
+    "callgraph_mode": "fp",
+    "duration_s": 30,
+    "repeat": 3,
+    "warmup": 1
+  },
+  "run_context": {
+    "cpu_governor": "performance",
+    "affinity": "0-3",
+    "thermal_state": "nominal"
+  },
+  "artifacts": {
+    "perf_data": "perf.data",
+    "perf_script": "perf-script.txt",
+    "folded": "out.folded",
+    "perf_report": "perf-report.txt",
+    "kallsyms": "kallsyms",
+    "proc_maps": "proc-4242-maps",
+    "dso_list": "dso-list.txt",
+    "run_context": "run-context.json",
+    "exec_log": "exec.log"
+  },
+  "provenance": {
+    "generated_by": "m0.5-fixture",
+    "version": "1.0.0",
+    "timestamp": "2026-06-02T00:00:00Z"
+  }
+}

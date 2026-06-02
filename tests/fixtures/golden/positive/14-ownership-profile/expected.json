@@ -1,0 +1,17 @@
+{
+  "fixture_id": "positive-14",
+  "document": "manifest.json",
+  "document_type": "capture-bundle",
+  "valid": true,
+  "expected_rules": [],
+  "required_files": ["ownership.yaml", "ownership-cases.json"],
+  "text_contains": {
+    "ownership.yaml": [
+      "/usr/lib/myplugin/*.so*",
+      "/usr/lib64/libgst*.so*",
+      "/lib64/lib*.so*",
+      "[kernel.kallsyms]"
+    ]
+  },
+  "ownership_cases": "ownership-cases.json"
+}

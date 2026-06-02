@@ -1,0 +1,9 @@
+{
+  "fixture_id": "positive-19",
+  "document": "patches.json",
+  "document_type": "suggestion-patch",
+  "valid": true,
+  "expected_rules": [],
+  "expected_patch_status": "needs-review",
+  "expected_patch_category": "local-micro-optimization"
+}

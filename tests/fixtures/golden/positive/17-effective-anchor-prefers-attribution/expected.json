@@ -1,0 +1,11 @@
+{
+  "fixture_id": "positive-17",
+  "document": "performance-findings.json",
+  "document_type": "performance-findings",
+  "valid": true,
+  "expected_rules": [],
+  "expected_effective_anchor": {
+    "symbol": "owned_emit_many",
+    "file": "src/signal_adapter.c"
+  }
+}

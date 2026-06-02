@@ -1,0 +1,9 @@
+{
+  "fixture_id": "positive-20",
+  "document": "patches.json",
+  "document_type": "suggestion-patch",
+  "valid": true,
+  "expected_rules": [],
+  "expected_patch_status": "diff-ready",
+  "expected_patch_category": "allocation-reduction"
+}

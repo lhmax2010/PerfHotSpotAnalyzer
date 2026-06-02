@@ -17,5 +17,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
+      - name: Check production code has no LLM SDK imports
+        run: bash tools/check_no_llm_sdk_imports.sh
+      - name: Check canonical schema copies
+        run: python tools/check_schema_copies.py
       - name: Run unit tests
         run: python -m pytest tests/unit
+      - name: Run golden fixture tests
+        run: python -m pytest tests/functional tests/security

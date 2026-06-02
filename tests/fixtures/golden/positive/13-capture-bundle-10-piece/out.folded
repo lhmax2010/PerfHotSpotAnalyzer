@@ -1,0 +1,2 @@
+gst_my_element_loop;my_element_chain;g_signal_emit 42
+gst_my_element_loop;my_element_chain;decode_block 13

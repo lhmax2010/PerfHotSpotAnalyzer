@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["hotspot-profile"],
+  "target": {
+    "name": "signal-adapter",
+    "kind": "process",
+    "repo_root": "/repo/demo",
+    "commit": "abc123",
+    "build_config": "gbs",
+    "platform": {"os": "tizen", "arch": "aarch64"}
+  },
+  "source_reports": [
+    {"id": "S1", "path": "perf-script.txt", "source_format": "perf-script", "parser": "structured", "confidence": 0.95}
+  ],
+  "run_context": {"device": "target-board", "cpu_governor": "performance", "core_count": 4, "repeat_count": 3, "warmup_count": 1},
+  "profiling": {"tool": "perf", "events": ["cycles"], "callgraph_mode": "fp"},
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "function-hotspot",
+      "title": "Effective anchor uses owned attribution",
+      "source_ref": {"source_id": "S1", "locator": "sample:3", "label": "g_signal_emit"},
+      "ownership": "third-party",
+      "actionability": "actionable",
+      "evidence": {
+        "metric": "self_cpu_pct",
+        "value": 22.0,
+        "unit": "percent",
+        "rank": 1,
+        "hot_symbol": {"symbol": "g_signal_emit", "dso": "/usr/lib64/libgobject-2.0.so.0", "ownership": "third-party"}
+      },
+      "code_anchors": [
+        {
+          "symbol": "g_signal_emit",
+          "dso": "/usr/lib64/libgobject-2.0.so.0",
+          "file": "third_party/gobject/gsignal.c",
+          "line_start": 3400,
+          "line_end": 3500,
+          "language": "c",
+          "anchor_confidence": 0.95,
+          "resolution_method": "dwarf",
+          "evidence": "Hot frame is not owned."
+        }
+      ],
+      "attribution_anchor": {
+        "symbol": "owned_emit_many",
+        "dso": "/usr/lib64/myplugin/libdemo-plugin.so",
+        "file": "src/signal_adapter.c",
+        "line_start": 55,
+        "line_end": 80,
+        "language": "c",
+        "anchor_confidence": 0.8,
+        "resolution_method": "caller-attribution",
+        "evidence": "First owned frame above the hot framework call."
+      },
+      "diagnosis": "Owned adapter emits too many signals.",
+      "confidence": 0.84
+    }
+  ],
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

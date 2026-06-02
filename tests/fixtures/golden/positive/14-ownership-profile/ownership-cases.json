@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "dso": "/usr/lib/myplugin/libdemo-plugin.so",
+      "build_id": "3f2a1dbe",
+      "matched_rule": "owned_paths:/usr/lib/myplugin/*.so*",
+      "expected_ownership": "owned"
+    },
+    {
+      "dso": "/usr/lib64/libgobject-2.0.so.0",
+      "build_id": "8a7c55f0",
+      "matched_rule": "third_party_paths:/usr/lib64/libg*.so*",
+      "expected_ownership": "third-party"
+    },
+    {
+      "dso": "/lib64/libc-2.35.so",
+      "build_id": "libc123",
+      "matched_rule": "system_paths:/lib*/libc-*.so*",
+      "expected_ownership": "system"
+    },
+    {
+      "dso": "/opt/unknown/libmystery.so",
+      "build_id": null,
+      "matched_rule": null,
+      "expected_ownership": "unknown"
+    }
+  ]
+}

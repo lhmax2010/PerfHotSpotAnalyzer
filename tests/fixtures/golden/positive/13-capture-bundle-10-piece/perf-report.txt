@@ -1,0 +1,3 @@
+# Children      Self  Command       Shared Object              Symbol
+  42.00%     42.00%  demo-decoder  libgobject-2.0.so.0        [.] g_signal_emit
+  13.00%     13.00%  demo-decoder  libdemo-plugin.so          [.] decode_block

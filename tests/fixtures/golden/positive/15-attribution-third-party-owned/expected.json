@@ -1,0 +1,12 @@
+{
+  "fixture_id": "positive-15",
+  "document": "performance-findings.json",
+  "document_type": "performance-findings",
+  "valid": true,
+  "expected_rules": [],
+  "expected_actionability": "actionable",
+  "expected_effective_anchor": {
+    "symbol": "my_element_chain",
+    "file": "src/element.c"
+  }
+}

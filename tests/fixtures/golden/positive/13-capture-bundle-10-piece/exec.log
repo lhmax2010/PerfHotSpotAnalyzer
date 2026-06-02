@@ -1,0 +1,6 @@
+[0] perf record -F 999 -g --call-graph fp -p 4242 -- sleep 30
+exit=0
+[1] perf script -i perf.data -F comm,pid,tid,time,ip,sym,dso > perf-script.txt
+exit=0
+[2] perf buildid-list -i perf.data > dso-list.txt
+exit=0

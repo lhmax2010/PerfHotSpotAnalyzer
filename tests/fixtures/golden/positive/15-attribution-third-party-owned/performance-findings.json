@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["hotspot-profile"],
+  "target": {
+    "name": "demo-pipeline",
+    "kind": "process",
+    "repo_root": "/repo/demo",
+    "commit": "abc123",
+    "build_config": "gbs",
+    "platform": {"os": "tizen", "arch": "aarch64"}
+  },
+  "source_reports": [
+    {"id": "S1", "path": "perf-script.txt", "source_format": "perf-script", "parser": "structured", "confidence": 0.95}
+  ],
+  "run_context": {"device": "target-board", "cpu_governor": "performance", "core_count": 4, "repeat_count": 3, "warmup_count": 1},
+  "profiling": {"tool": "perf", "events": ["cycles"], "callgraph_mode": "fp", "artifacts": {"raw": "perf.data", "perf_script": "perf-script.txt"}},
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "function-hotspot",
+      "title": "g_signal_emit called heavily from owned element",
+      "source_ref": {"source_id": "S1", "locator": "sample:1", "label": "g_signal_emit"},
+      "ownership": "third-party",
+      "actionability": "actionable",
+      "evidence": {
+        "metric": "self_cpu_pct",
+        "value": 31.4,
+        "unit": "percent",
+        "rank": 1,
+        "samples": 21000,
+        "hot_symbol": {"symbol": "g_signal_emit", "dso": "/usr/lib64/libgobject-2.0.so.0", "ownership": "third-party"},
+        "callers": ["my_element_chain"],
+        "callees": ["g_signal_emit_valist"]
+      },
+      "code_anchors": [
+        {
+          "symbol": "g_signal_emit",
+          "dso": "/usr/lib64/libgobject-2.0.so.0",
+          "file": "third_party/gobject/gsignal.c",
+          "line_start": 3450,
+          "line_end": 3500,
+          "language": "c",
+          "anchor_confidence": 0.9,
+          "resolution_method": "dwarf",
+          "evidence": "The hot frame itself is third-party."
+        }
+      ],
+      "attribution_anchor": {
+        "symbol": "my_element_chain",
+        "dso": "/usr/lib64/myplugin/libdemo-plugin.so",
+        "file": "src/element.c",
+        "line_start": 88,
+        "line_end": 120,
+        "language": "c",
+        "anchor_confidence": 0.82,
+        "resolution_method": "caller-attribution",
+        "evidence": "g_signal_emit is called from element.c:101 in the owned plugin."
+      },
+      "bottleneck_class": ["external-call-overhead", "call-frequency"],
+      "diagnosis": "Owned code calls the framework signal path at high frequency.",
+      "confidence": 0.86
+    }
+  ],
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

@@ -46,12 +46,19 @@
       "kind": "function-hotspot",
       "title": "decode_block dominates CPU samples",
       "source_ref": {"source_id": "S1", "locator": "$.top[0]", "label": "decode_block"},
+      "ownership": "owned",
+      "actionability": "actionable",
       "evidence": {
         "metric": "self_cpu_pct",
         "value": 38.2,
         "unit": "percent",
         "samples": 45000,
         "rank": 1,
+        "hot_symbol": {
+          "symbol": "decode_block",
+          "dso": "demo-decoder",
+          "ownership": "owned"
+        },
         "callers": ["decode_stream"],
         "callees": ["idct_inner"]
       },
@@ -87,6 +94,7 @@
       "kind": "binary-size-large",
       "title": ".rodata is large",
       "source_ref": {"source_id": "S1", "locator": "$.sections[0]", "label": ".rodata"},
+      "actionability": "actionable",
       "evidence": {
         "metric": "section_bytes",
         "value": 131072,
@@ -111,4 +119,3 @@
     "timestamp": "2026-05-25T00:00:00Z"
   }
 }
-

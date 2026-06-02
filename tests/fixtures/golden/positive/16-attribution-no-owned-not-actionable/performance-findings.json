@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "report_types": ["hotspot-profile"],
+  "target": {
+    "name": "framework-only",
+    "kind": "process",
+    "repo_root": "/repo/demo",
+    "commit": "abc123",
+    "build_config": "gbs",
+    "platform": {"os": "tizen", "arch": "aarch64"}
+  },
+  "source_reports": [
+    {"id": "S1", "path": "perf-script.txt", "source_format": "perf-script", "parser": "structured", "confidence": 0.95}
+  ],
+  "run_context": {"device": "target-board", "cpu_governor": "performance", "core_count": 4, "repeat_count": 3, "warmup_count": 1},
+  "profiling": {"tool": "perf", "events": ["cycles"], "callgraph_mode": "fp"},
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "function-hotspot",
+      "title": "Framework-only stack has no owned frame",
+      "source_ref": {"source_id": "S1", "locator": "sample:2", "label": "poll"},
+      "ownership": "system",
+      "actionability": "not-actionable",
+      "evidence": {
+        "metric": "children_pct",
+        "value": 18.0,
+        "unit": "percent",
+        "rank": 2,
+        "samples": 9000,
+        "hot_symbol": {"symbol": "__poll", "dso": "/lib64/libc-2.35.so", "ownership": "system"},
+        "callers": ["g_main_context_iterate"],
+        "callees": []
+      },
+      "bottleneck_class": ["external-wait"],
+      "diagnosis": "No owned frame is present in the captured stack.",
+      "confidence": 0.8
+    }
+  ],
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

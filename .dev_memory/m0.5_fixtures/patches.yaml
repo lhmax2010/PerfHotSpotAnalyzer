@@ -23,3 +23,16 @@ patches:
       - ".dev_memory/current.yaml"
     rationale: "The 8-step loop requires guide, memory, and review artifacts before shipping the stage."
     test_commit: "this-branch-tip"
+  - id: p004
+    title: "Refresh M0.5 fixtures for DESIGN v1.0.6"
+    commit: "this-branch-tip"
+    files_changed:
+      - "common/schemas/*"
+      - "common/schema_validate.py"
+      - "tools/check_schema_copies.py"
+      - "tools/check_no_llm_sdk_imports.sh"
+      - "tests/fixtures/golden/**"
+      - "tests/security/test_no_llm_sdk_imports.py"
+      - ".github/workflows/ci.yml"
+    rationale: "DESIGN v1.0.6 requires capture-bundle, ownership/actionability, effective_anchor, canonical schema hash, and LLM SDK scan coverage before A/B milestones."
+    test_commit: "this-branch-tip"

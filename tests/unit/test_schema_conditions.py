@@ -47,7 +47,18 @@ def base_performance(kind: str) -> dict:
     if kind == "function-hotspot":
         document["report_types"] = ["hotspot-profile"]
         document["profiling"] = {"tool": "perf", "callgraph_mode": "fp"}
-        finding["evidence"] = {"metric": "self_cpu_pct", "value": 38.2, "rank": 1}
+        finding["ownership"] = "owned"
+        finding["actionability"] = "actionable"
+        finding["evidence"] = {
+            "metric": "self_cpu_pct",
+            "value": 38.2,
+            "rank": 1,
+            "hot_symbol": {
+                "symbol": "hot",
+                "dso": "demo",
+                "ownership": "owned",
+            },
+        }
         finding["code_anchors"] = [
             {
                 "symbol": "hot",
@@ -239,6 +250,9 @@ def test_needs_review_requires_diff() -> None:
 
 def test_skill_performance_schemas_are_identical() -> None:
     repo = Path(__file__).resolve().parents[2]
+    canonical_schema = (
+        repo / "common" / "schemas" / "performance-findings.schema.json"
+    ).read_text(encoding="utf-8")
     analyzer_schema = (
         repo
         / "skills"
@@ -253,7 +267,22 @@ def test_skill_performance_schemas_are_identical() -> None:
         / "schemas"
         / "performance-findings.schema.json"
     ).read_text(encoding="utf-8")
-    assert analyzer_schema == patch_schema
+    assert canonical_schema == analyzer_schema == patch_schema
+
+
+def test_suggestion_patch_schema_matches_canonical() -> None:
+    repo = Path(__file__).resolve().parents[2]
+    canonical_schema = (
+        repo / "common" / "schemas" / "suggestion-patch.schema.json"
+    ).read_text(encoding="utf-8")
+    skill_schema = (
+        repo
+        / "skills"
+        / "perf-suggestion-patch"
+        / "schemas"
+        / "suggestion-patch.schema.json"
+    ).read_text(encoding="utf-8")
+    assert canonical_schema == skill_schema
 
 
 def test_mutating_fixture_copy_does_not_change_base() -> None:

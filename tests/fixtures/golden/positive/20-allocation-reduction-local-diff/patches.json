@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "source_reports": [
+    {"id": "S1", "path": "performance-findings.json", "source_format": "analyzer-json", "parser": "structured", "confidence": 0.95}
+  ],
+  "patches": [
+    {
+      "id": "P001",
+      "finding_id": "F001",
+      "source_ref": {"source_id": "S1", "locator": "$.findings[0]", "label": "build_packets"},
+      "patch_category": "allocation-reduction",
+      "strategy": "reserve-local-vector",
+      "chosen_anchor": {"symbol": "build_packets", "file": "src/packets.cc", "line_start": 20, "line_end": 55, "anchor_confidence": 0.86, "resolution_method": "dwarf"},
+      "diff": "--- a/src/packets.cc\n+++ b/src/packets.cc\n@@ -20,2 +20,3 @@\n std::vector<Packet> packets;\n+packets.reserve(count);\n for (auto item : input) packets.push_back(make_packet(item));\n",
+      "files_touched": ["src/packets.cc"],
+      "files_touched_policy": {"allowed": true, "reason": "local reserve without ownership or lifetime change", "risk": "low"},
+      "expected_impact": {"level": "medium", "estimate": "fewer reallocations", "confidence": 0.7},
+      "measured_impact": null,
+      "side_effects": {"runtime_memory": "small increase", "maintainability": "low risk"},
+      "risk": {"level": "low", "notes": "Capacity reserve is local."},
+      "rationale": "Purely local allocation reduction is allowed to produce a diff.",
+      "verification_plan": {"build_cmd": "cmake --build build", "test_cmd": "ctest --test-dir build", "benchmark_cmd": null, "manual_steps": [], "required": true},
+      "status": "diff-ready",
+      "validation_status": "not-run"
+    }
+  ],
+  "apply_instructions": "Review manually; do not auto-apply.",
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

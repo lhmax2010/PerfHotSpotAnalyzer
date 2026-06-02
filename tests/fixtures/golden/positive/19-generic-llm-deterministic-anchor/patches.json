@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "source_reports": [
+    {"id": "S1", "path": "freeform-report.txt", "source_format": "generic-llm", "parser": "generic-llm", "confidence": 0.3}
+  ],
+  "patches": [
+    {
+      "id": "P001",
+      "finding_id": "F001",
+      "source_ref": {"source_id": "S1", "locator": "paragraph:1", "label": "slow lookup"},
+      "patch_category": "local-micro-optimization",
+      "strategy": "hoist-invariant",
+      "chosen_anchor": {
+        "symbol": "lookup_inner",
+        "file": "src/index.c",
+        "line_start": 40,
+        "line_end": 64,
+        "anchor_confidence": 0.75,
+        "resolution_method": "ctags"
+      },
+      "diff": "--- a/src/index.c\n+++ b/src/index.c\n@@ -40,2 +40,2 @@\n-old_lookup();\n+fast_lookup();\n",
+      "files_touched": ["src/index.c"],
+      "files_touched_policy": {"allowed": true, "reason": "deterministic ctags anchor and local source path", "risk": "low"},
+      "expected_impact": {"level": "low", "estimate": "~2%", "confidence": 0.4},
+      "measured_impact": null,
+      "side_effects": {"runtime_memory": "unknown"},
+      "risk": {"level": "medium", "notes": "Free-form source requires human review despite deterministic anchor."},
+      "rationale": "generic-llm report was deterministically re-anchored with ctags at confidence >= 0.7.",
+      "verification_plan": {"build_cmd": "cmake --build build", "test_cmd": null, "benchmark_cmd": null, "manual_steps": ["Review source semantics."], "required": true},
+      "status": "needs-review",
+      "validation_status": "not-run"
+    }
+  ],
+  "apply_instructions": "Review manually; do not auto-apply.",
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}

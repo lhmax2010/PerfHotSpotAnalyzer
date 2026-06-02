@@ -1,0 +1,7 @@
+demo-decoder 4242/4242 1000.123456:          7f0012345678 g_signal_emit+0x2a (/usr/lib64/libgobject-2.0.so.0)
+	7f0012345678 g_signal_emit+0x2a (/usr/lib64/libgobject-2.0.so.0)
+	7f0011112244 my_element_chain+0x44 (/usr/lib64/myplugin/libdemo-plugin.so)
+	7f0011111020 gst_my_element_loop+0x20 (/usr/lib64/myplugin/libdemo-plugin.so)
+demo-decoder 4242/4242 1000.124000:          7f0011113300 decode_block+0x18 (/usr/lib64/myplugin/libdemo-plugin.so)
+	7f0011113300 decode_block+0x18 (/usr/lib64/myplugin/libdemo-plugin.so)
+	7f0011112244 my_element_chain+0x44 (/usr/lib64/myplugin/libdemo-plugin.so)

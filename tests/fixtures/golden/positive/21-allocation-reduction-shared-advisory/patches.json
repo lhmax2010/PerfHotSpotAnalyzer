@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "source_reports": [
+    {"id": "S1", "path": "performance-findings.json", "source_format": "analyzer-json", "parser": "structured", "confidence": 0.95}
+  ],
+  "patches": [
+    {
+      "id": "P001",
+      "finding_id": "F001",
+      "source_ref": {"source_id": "S1", "locator": "$.findings[0]", "label": "allocate_frame"},
+      "patch_category": "allocation-reduction",
+      "strategy": "shared-object-pool",
+      "recommendation": {
+        "suggested_locations": ["src/frame_cache.cc:80"],
+        "idea": "Consider a bounded object pool only after reviewing lifetime, ownership, and thread visibility.",
+        "risk": "high"
+      },
+      "files_touched": [],
+      "files_touched_policy": {"allowed": false, "reason": "shared cache/object pool changes ownership and lifetime", "risk": "high"},
+      "expected_impact": {"level": "medium", "estimate": "lower allocation churn", "confidence": 0.5},
+      "measured_impact": null,
+      "side_effects": {"runtime_memory": "increase", "maintainability": "high risk", "startup_time": "unknown"},
+      "risk": {"level": "high", "notes": "Shared ownership and thread visibility require design review."},
+      "rationale": "Risky allocation-reduction category must downgrade to advisory-only.",
+      "verification_plan": {"build_cmd": null, "test_cmd": null, "benchmark_cmd": null, "manual_steps": ["Review object lifetime and thread visibility."], "required": false},
+      "status": "advisory-only",
+      "validation_status": "not-run"
+    }
+  ],
+  "apply_instructions": "Do not apply automatically.",
+  "provenance": {"generated_by": "m0.5-fixture", "version": "1.0.0", "timestamp": "2026-06-02T00:00:00Z"}
+}
