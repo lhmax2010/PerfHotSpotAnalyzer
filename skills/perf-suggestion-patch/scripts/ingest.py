@@ -770,6 +770,7 @@ def run_ingested_report(
 ) -> AnalysisResult:
     """Run anchor, gate, and advisory report generation for a normalized report."""
 
+    report = enrich_report_with_repo_anchors(report)
     started = time.monotonic()
     started_at = datetime.now(UTC).isoformat()
     output_path = Path(output_dir)
@@ -857,6 +858,52 @@ def run_ingested_report(
     finally:
         if owns_tracer:
             active_tracer.close()
+
+
+def enrich_report_with_repo_anchors(report: IngestedReport) -> IngestedReport:
+    """Add deterministic repo-root anchors to normalized external findings."""
+
+    repo_root = report.document.get("target", {}).get("repo_root")
+    if not repo_root:
+        return report
+    repo_path = Path(str(repo_root)).expanduser()
+    if not repo_path.exists() or not repo_path.is_dir():
+        return report
+
+    document = deepcopy(report.document)
+    changed = False
+    for finding in document.get("findings", []):
+        if not isinstance(finding, dict):
+            continue
+        anchors = _repo_anchors_for_finding(finding, repo_path)
+        if not anchors:
+            continue
+        existing = [
+            anchor for anchor in finding.get("code_anchors", []) if isinstance(anchor, dict)
+        ]
+        for anchor in anchors:
+            if not _has_equivalent_anchor(existing, anchor):
+                existing.append(anchor)
+                changed = True
+        finding["code_anchors"] = existing
+        if finding.get("kind") == "function-hotspot":
+            finding["ownership"] = "owned"
+            finding["actionability"] = "actionable"
+
+    if not changed:
+        return report
+
+    schema_validate.validate_document(
+        document,
+        document_type=schema_validate.PERFORMANCE_FINDINGS,
+        skill="perf-suggestion-patch",
+    )
+    return IngestedReport(
+        path=report.path,
+        document=document,
+        source_reports=list(document.get("source_reports", [])),
+        findings=list(document.get("findings", [])),
+    )
 
 
 def build_run_report(
@@ -1273,6 +1320,275 @@ def _generic_llm_anchor_can_continue(anchor: dict[str, Any] | None) -> bool:
         anchor.get("resolution_method") in {"dwarf", "addr2line", "ctags", "compile-db"}
         and isinstance(anchor.get("anchor_confidence"), int | float)
         and float(anchor["anchor_confidence"]) >= ANCHOR_GATE_THRESHOLD
+    )
+
+
+def _repo_anchors_for_finding(finding: dict[str, Any], repo_root: Path) -> list[dict[str, Any]]:
+    if finding.get("source_format") == "generic-llm":
+        for symbol in _symbol_candidates(finding):
+            anchor = _source_symbol_anchor(symbol, repo_root)
+            if anchor is not None:
+                return [anchor]
+
+    if finding.get("kind") in {"benchmark-regression", "benchmark-latency"}:
+        label = _source_ref_label(finding)
+        if label:
+            anchor = _benchmark_name_anchor(label, repo_root)
+            if anchor is not None:
+                return [anchor]
+
+    for symbol in _symbol_candidates(finding):
+        anchor = _source_symbol_anchor(symbol, repo_root)
+        if anchor is not None:
+            return [anchor]
+    return []
+
+
+def _symbol_candidates(finding: dict[str, Any]) -> list[str]:
+    candidates = []
+    evidence = finding.get("evidence", {})
+    if isinstance(evidence, dict):
+        hot_symbol = evidence.get("hot_symbol")
+        if isinstance(hot_symbol, dict) and hot_symbol.get("symbol"):
+            candidates.append(str(hot_symbol["symbol"]))
+    for anchor in finding.get("code_anchors", []) or []:
+        if isinstance(anchor, dict) and anchor.get("symbol"):
+            candidates.append(str(anchor["symbol"]))
+    label = _source_ref_label(finding)
+    if label and finding.get("kind") == "function-hotspot":
+        candidates.append(label)
+
+    deduped = []
+    for candidate in candidates:
+        candidate = candidate.strip()
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
+
+
+def _source_ref_label(finding: dict[str, Any]) -> str | None:
+    source_ref = finding.get("source_ref", {})
+    if isinstance(source_ref, dict) and source_ref.get("label"):
+        return str(source_ref["label"])
+    return None
+
+
+def _source_symbol_anchor(symbol: str, repo_root: Path) -> dict[str, Any] | None:
+    return (
+        _anchor_from_tags_file(symbol, repo_root)
+        or _anchor_from_compile_db(symbol, repo_root)
+        or _anchor_from_grep(symbol, repo_root)
+    )
+
+
+def _anchor_from_tags_file(symbol: str, repo_root: Path) -> dict[str, Any] | None:
+    tags_path = repo_root / "tags"
+    if not tags_path.exists():
+        return None
+    for line in tags_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if line.startswith("!"):
+            continue
+        fields = line.split("\t")
+        if len(fields) < 2 or fields[0] != symbol:
+            continue
+        source_path = repo_root / fields[1]
+        location = _find_symbol_in_file(symbol, source_path)
+        if location is None:
+            continue
+        return _code_anchor(
+            symbol=symbol,
+            repo_root=repo_root,
+            source_path=source_path,
+            line_start=location,
+            resolution_method="ctags",
+            confidence=0.75,
+            evidence="tags file maps symbol to a unique source file.",
+        )
+    return None
+
+
+def _anchor_from_compile_db(symbol: str, repo_root: Path) -> dict[str, Any] | None:
+    compile_db_path = repo_root / "compile_commands.json"
+    if not compile_db_path.exists():
+        return None
+    try:
+        compile_db = json.loads(compile_db_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(compile_db, list):
+        return None
+    files = []
+    for entry in compile_db:
+        if not isinstance(entry, dict) or not entry.get("file"):
+            continue
+        source_path = Path(str(entry["file"]))
+        if not source_path.is_absolute():
+            source_path = Path(str(entry.get("directory", repo_root))) / source_path
+        files.append(source_path)
+    matches = _find_symbol_matches(symbol, files)
+    if len(matches) != 1:
+        return None
+    source_path, line_start = matches[0]
+    return _code_anchor(
+        symbol=symbol,
+        repo_root=repo_root,
+        source_path=source_path,
+        line_start=line_start,
+        resolution_method="compile-db",
+        confidence=0.75,
+        evidence="compile_commands.json scoped symbol search found one source match.",
+    )
+
+
+def _anchor_from_grep(symbol: str, repo_root: Path) -> dict[str, Any] | None:
+    matches = _find_symbol_matches(symbol, _source_files(repo_root))
+    if len(matches) != 1:
+        return None
+    source_path, line_start = matches[0]
+    return _code_anchor(
+        symbol=symbol,
+        repo_root=repo_root,
+        source_path=source_path,
+        line_start=line_start,
+        resolution_method="grep",
+        confidence=0.65,
+        evidence="repo-root grep found one source match.",
+    )
+
+
+def _benchmark_name_anchor(name: str, repo_root: Path) -> dict[str, Any] | None:
+    candidates = _benchmark_name_candidates(name)
+    for source_path in _source_files(repo_root):
+        try:
+            lines = source_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            if any(candidate in line for candidate in candidates):
+                return _code_anchor(
+                    symbol=_benchmark_symbol(name),
+                    repo_root=repo_root,
+                    source_path=source_path,
+                    line_start=line_number,
+                    resolution_method="bench-name-map",
+                    confidence=0.50,
+                    evidence=f"benchmark name {name!r} matched source text.",
+                )
+    return None
+
+
+def _benchmark_name_candidates(name: str) -> list[str]:
+    symbol = _benchmark_symbol(name)
+    candidates = [name, symbol]
+    if symbol.startswith("BM_"):
+        candidates.append(symbol[3:])
+    deduped = []
+    for candidate in candidates:
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
+
+
+def _benchmark_symbol(name: str) -> str:
+    return name.split("/", 1)[0]
+
+
+def _find_symbol_matches(symbol: str, files: list[Path]) -> list[tuple[Path, int]]:
+    matches = []
+    seen = set()
+    for source_path in files:
+        key = source_path.resolve() if source_path.exists() else source_path
+        if key in seen:
+            continue
+        seen.add(key)
+        line_start = _find_symbol_in_file(symbol, source_path)
+        if line_start is not None:
+            matches.append((source_path, line_start))
+    return matches
+
+
+def _find_symbol_in_file(symbol: str, source_path: Path) -> int | None:
+    if not source_path.exists() or not source_path.is_file():
+        return None
+    pattern = re.compile(rf"\b{re.escape(symbol)}\b")
+    try:
+        lines = source_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return None
+    for line_number, line in enumerate(lines, start=1):
+        if pattern.search(line):
+            return line_number
+    return None
+
+
+def _source_files(repo_root: Path) -> list[Path]:
+    extensions = {
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cxx",
+        ".h",
+        ".hh",
+        ".hpp",
+        ".hxx",
+        ".rs",
+    }
+    ignored_parts = {".git", ".venv", "build", "out", "__pycache__"}
+    files = []
+    for path in repo_root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in extensions:
+            continue
+        if any(part in ignored_parts for part in path.relative_to(repo_root).parts):
+            continue
+        files.append(path)
+    return files
+
+
+def _code_anchor(
+    *,
+    symbol: str,
+    repo_root: Path,
+    source_path: Path,
+    line_start: int,
+    resolution_method: str,
+    confidence: float,
+    evidence: str,
+) -> dict[str, Any]:
+    return {
+        "symbol": symbol,
+        "file": _repo_relative_path(repo_root, source_path),
+        "line_start": line_start,
+        "line_end": line_start,
+        "language": _language_for_path(source_path),
+        "anchor_confidence": confidence,
+        "resolution_method": resolution_method,
+        "evidence": evidence,
+    }
+
+
+def _repo_relative_path(repo_root: Path, source_path: Path) -> str:
+    try:
+        return str(source_path.resolve().relative_to(repo_root.resolve()))
+    except ValueError:
+        return str(source_path)
+
+
+def _language_for_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".rs":
+        return "rust"
+    if suffix in {".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"}:
+        return "c++"
+    return "c"
+
+
+def _has_equivalent_anchor(existing: list[dict[str, Any]], anchor: dict[str, Any]) -> bool:
+    return any(
+        candidate.get("file") == anchor.get("file")
+        and candidate.get("line_start") == anchor.get("line_start")
+        and candidate.get("symbol") == anchor.get("symbol")
+        and candidate.get("resolution_method") == anchor.get("resolution_method")
+        for candidate in existing
     )
 
 
