@@ -141,6 +141,7 @@ def test_make_patch_generates_diff_ready_atomic_patch(tmp_path: Path) -> None:
     assert patch["diff"].startswith("--- a/src/hot.c\n+++ b/src/hot.c\n")
     assert "PERF-SUGGESTION P001" in patch["diff"]
     assert result.gate_decisions[0]["decision"] == "diff-ready"
+    assert (tmp_path / "out" / "patch-report.md").exists()
 
     patch_file = tmp_path / "generated.patch"
     patch_file.write_text(patch["diff"], encoding="utf-8")
@@ -299,3 +300,24 @@ def test_api_semantic_change_never_emits_diff(tmp_path: Path) -> None:
     assert patch["status"] == "advisory-only"
     assert "diff" not in patch
     assert result.gate_decisions[0]["reason"] == "patch_category=api/semantic-change"
+
+
+def test_patch_report_contains_each_required_section(tmp_path: Path) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    report = performance_report(repo)
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    patch_report = result.patch_report
+    assert "## P001 -> F001" in patch_report
+    assert "Expected impact" in patch_report
+    assert "### Side Effects" in patch_report
+    assert "### Apply" in patch_report
+    assert "Do not apply, commit, or push automatically." in patch_report
+    assert "### Verification" in patch_report
+    assert "cmake --build build" in patch_report

@@ -44,6 +44,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(result.patches_path)
         print(result.run_report_path)
+        if result.patch_report_path is not None:
+            print(result.patch_report_path)
         return EXIT_SUCCESS
     except (FileNotFoundError, OSError) as exc:
         print(str(exc), file=sys.stderr)

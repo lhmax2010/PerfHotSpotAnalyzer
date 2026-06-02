@@ -105,6 +105,25 @@ def build_patch_report(suggestion_patch: dict[str, Any]) -> str:
                 f"(risk {patch['files_touched_policy']['risk']})",
                 f"- Rationale: {patch['rationale']}",
                 "",
+                "### Side Effects",
+                "",
+            ]
+        )
+        side_effects = patch.get("side_effects", {})
+        if side_effects:
+            for key, value in side_effects.items():
+                lines.append(f"- {key}: {value}")
+        else:
+            lines.append("- none recorded")
+        lines.extend(
+            [
+                "",
+                "### Apply",
+                "",
+                "- Review the diff manually.",
+                "- Do not apply, commit, or push automatically.",
+                "- If approved, apply the unified diff in the target repository.",
+                "",
                 "### Verification",
                 "",
             ]
