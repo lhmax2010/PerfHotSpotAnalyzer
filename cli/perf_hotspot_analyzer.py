@@ -92,6 +92,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 tracer=tracer,
             )
             wrote_run_report = True
+        elif args.command == "binary-size":
+            binary_size = _load_script("binary_size")
+            document = binary_size.build_binary_size_document(
+                elf_path=args.elf,
+                baseline_path=args.baseline,
+                repo_root=args.repo_root,
+                ownership_path=args.ownership,
+                user_budget_bytes=args.user_budget_bytes,
+                readelf=args.readelf,
+            )
+            binary_size.write_binary_size_outputs(
+                document=document,
+                output_dir=args.output_dir,
+                trace_id=tracer.trace_id,
+                started_at=started_at,
+                total_ms=int((time.monotonic() - started) * 1000),
+            )
+            tracer.info(
+                "binary-size",
+                "validated",
+                findings=len(document.get("findings", [])),
+                baseline=bool(args.baseline),
+            )
+            wrote_run_report = True
         else:
             parser.error(f"unsupported command {args.command}")
     except TimeoutError as exc:
@@ -163,6 +187,16 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--repo-root", default=".")
     report.add_argument("--output-dir", required=True)
     report.add_argument("--verbose", action="store_true")
+
+    binary_size = subparsers.add_parser("binary-size", help="Analyze ELF section sizes.")
+    binary_size.add_argument("--elf", required=True, help="Current ELF file.")
+    binary_size.add_argument("--baseline", help="Baseline ELF for regression comparison.")
+    binary_size.add_argument("--repo-root", default=".")
+    binary_size.add_argument("--ownership", help="Optional ownership.yaml path.")
+    binary_size.add_argument("--user-budget-bytes", type=int)
+    binary_size.add_argument("--readelf", default="readelf")
+    binary_size.add_argument("--output-dir", required=True)
+    binary_size.add_argument("--verbose", action="store_true")
     return parser
 
 
