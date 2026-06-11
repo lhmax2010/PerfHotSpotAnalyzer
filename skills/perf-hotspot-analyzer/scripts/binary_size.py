@@ -22,6 +22,8 @@ READ_TIMEOUT_S = 20
 ABSOLUTE_THRESHOLD_BYTES = 64 * 1024
 SECTION_RATIO_THRESHOLD = 0.10
 TOP_N = 5
+REGRESSION_ABS_THRESHOLD_BYTES = 1024
+REGRESSION_PCT_THRESHOLD = 5.0
 
 
 @dataclass(frozen=True)
@@ -170,25 +172,51 @@ def build_binary_size_document(
     user_budget_bytes: int | None = None,
     readelf: str = "readelf",
 ) -> dict[str, Any]:
-    if baseline_path is not None:
-        raise NotImplementedError("binary-size-regression is implemented in A2 p003")
     sections = read_elf_sections(elf_path, readelf=readelf)
     profile = load_ownership_profile(ownership_path)
     ownership = classify_elf_path(elf_path, profile)
     source_report = {
-        "id": "binary-size",
+        "id": "binary-size-current" if baseline_path is not None else "binary-size",
         "path": str(elf_path),
         "source_format": "external",
         "parser": "readelf-section-table",
         "confidence": 0.95,
     }
-    findings = build_large_findings(
-        sections=sections,
-        elf_path=Path(elf_path),
-        source_id=source_report["id"],
-        ownership=ownership,
-        user_budget_bytes=user_budget_bytes,
-    )
+    source_reports = [source_report]
+    comparison: dict[str, Any] | None = None
+    if baseline_path is None:
+        findings = build_large_findings(
+            sections=sections,
+            elf_path=Path(elf_path),
+            source_id=source_report["id"],
+            ownership=ownership,
+            user_budget_bytes=user_budget_bytes,
+        )
+    else:
+        baseline_sections = read_elf_sections(baseline_path, readelf=readelf)
+        source_reports.append(
+            {
+                "id": "binary-size-baseline",
+                "path": str(baseline_path),
+                "source_format": "external",
+                "parser": "readelf-section-table",
+                "confidence": 0.95,
+            }
+        )
+        comparison = {
+            "current_report": str(elf_path),
+            "baseline_report": str(baseline_path),
+            "compare_method": "name-match",
+            "renamed_map": {},
+        }
+        findings = build_regression_findings(
+            current_sections=sections,
+            baseline_sections=baseline_sections,
+            current_path=Path(elf_path),
+            baseline_path=Path(baseline_path),
+            source_id=source_report["id"],
+            ownership=ownership,
+        )
     document = {
         "schema_version": "1.0",
         "report_types": ["binary-size"],
@@ -198,7 +226,7 @@ def build_binary_size_document(
             "repo_root": str(Path(repo_root)),
             "platform": {"os": "linux", "arch": _normalized_arch()},
         },
-        "source_reports": [source_report],
+        "source_reports": source_reports,
         "run_context": {
             "device": "host",
             "cpu_governor": "unknown",
@@ -217,6 +245,8 @@ def build_binary_size_document(
             "timestamp": datetime.now(UTC).isoformat(),
         },
     }
+    if comparison is not None:
+        document["comparison"] = comparison
     schema_validate.validate_document(document, document_type=PERFORMANCE_FINDINGS)
     return document
 
@@ -273,6 +303,82 @@ def build_large_findings(
                         "value": threshold.value,
                         "unit": threshold.unit,
                         "reason": threshold.reason,
+                    },
+                    "ownership_reason": ownership.reason,
+                    "actionability_reason": actionability_reason,
+                },
+                "confidence": 0.9,
+            }
+        )
+    return findings
+
+
+def build_regression_findings(
+    *,
+    current_sections: Sequence[Section],
+    baseline_sections: Sequence[Section],
+    current_path: Path,
+    baseline_path: Path,
+    source_id: str,
+    ownership: OwnershipDecision,
+) -> list[dict[str, Any]]:
+    current = {section.name: section for section in alloc_sections(current_sections)}
+    baseline = {section.name: section for section in alloc_sections(baseline_sections)}
+    candidates: list[tuple[str, int, int, int, float, str]] = []
+    for name in sorted(set(current) | set(baseline)):
+        current_size = current.get(name).size if name in current else 0
+        baseline_size = baseline.get(name).size if name in baseline else 0
+        if current_size == baseline_size:
+            continue
+        delta_abs = abs(current_size - baseline_size)
+        delta_pct = _delta_pct(current_size, baseline_size)
+        if delta_abs < REGRESSION_ABS_THRESHOLD_BYTES and delta_pct < REGRESSION_PCT_THRESHOLD:
+            continue
+        direction = "increase" if current_size >= baseline_size else "decrease"
+        candidates.append((name, current_size, baseline_size, delta_abs, delta_pct, direction))
+
+    findings: list[dict[str, Any]] = []
+    for name, current_size, baseline_size, delta_abs, delta_pct, direction in sorted(
+        candidates,
+        key=lambda item: (-item[3], item[0]),
+    ):
+        default_actionability = "actionable"
+        actionability, actionability_reason = apply_binary_actionability(
+            default_actionability,
+            ownership=ownership,
+            threshold=Threshold(
+                "binary-size-regression",
+                REGRESSION_PCT_THRESHOLD,
+                "percent",
+                "section changed by at least 5% or 1KB",
+            ),
+        )
+        findings.append(
+            {
+                "id": f"F{len(findings) + 1:03d}",
+                "kind": "binary-size-regression",
+                "title": f"{name} {direction}d by {delta_abs} bytes",
+                "source_ref": {
+                    "source_id": source_id,
+                    "locator": f"$.sections['{name}']",
+                    "label": name,
+                },
+                "ownership": ownership.ownership,
+                "actionability": actionability,
+                "evidence": {
+                    "metric": "section_bytes",
+                    "value": current_size,
+                    "unit": "bytes",
+                    "section": name,
+                    "file": str(current_path),
+                    "baseline": {
+                        "value": baseline_size,
+                        "label": baseline_path.name,
+                    },
+                    "delta": {
+                        "abs": delta_abs,
+                        "pct": round(delta_pct, 2),
+                        "direction": direction,
                     },
                     "ownership_reason": ownership.reason,
                     "actionability_reason": actionability_reason,
@@ -451,6 +557,12 @@ def _large_title(section: Section, threshold: Threshold) -> str:
     if threshold.type == "user-budget":
         return f"{section.name} exceeds the user binary-size budget"
     return f"{section.name} exceeds 64KB"
+
+
+def _delta_pct(current_size: int, baseline_size: int) -> float:
+    if baseline_size == 0:
+        return 100.0 if current_size != 0 else 0.0
+    return abs(current_size - baseline_size) * 100.0 / baseline_size
 
 
 def _normalized_arch() -> str:
