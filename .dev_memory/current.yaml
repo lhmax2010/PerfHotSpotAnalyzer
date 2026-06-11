@@ -1,7 +1,7 @@
 schema_version: 1
 shared_current: m0.5_fixtures
 shared_last_completed: m0.5_fixtures
-session_count: 7
+session_count: 8
 milestones:
   m0_schema:
     status: completed
@@ -19,10 +19,10 @@ milestones:
     last_commit: tag:stage-a1-x86-perf-done
     review_status: pending
   a2_binary_size:
-    status: TODO
-    branch: null
-    last_commit: null
-    review_status: not-started
+    status: completed
+    branch: stage/a2-binary-size
+    last_commit: tag:stage-a2-binary-size-done
+    review_status: pending
   a3_tizen_symbolize:
     status: TODO
     branch: null
@@ -55,9 +55,9 @@ milestones:
     review_status: not-started
 lines:
   A:
-    current: a2_binary_size
-    last_completed: a1_x86_perf
-    last_commit: tag:stage-a1-x86-perf-done
+    current: a3_tizen_symbolize
+    last_completed: a2_binary_size
+    last_commit: tag:stage-a2-binary-size-done
     review_status: pending
   B:
     current: mfinal_workflow
@@ -65,13 +65,17 @@ lines:
     last_commit: tag:stage-b3-patch-gen-done
     review_status: pending
 next_steps:
-  - "Wait for A1 x86 perf review. Do not continue to A2 until A1 is reviewed."
+  - "Wait for A2 binary-size review. Do not continue to A3 until A2 is reviewed."
   - "B3 patch-generation review is also still pending; do not continue to M-final until B3 is reviewed."
 blocked_on: null
 notes: |
+  A2 is implemented on stage/a2-binary-size from the A1 branch. Static ELF
+  binary-size-large and binary-size-regression analysis, CLI integration, real
+  ELF fixtures, and size -A cross-checks are complete. A3 has not started.
+
   A1 is implemented on stage/a1-x86-perf from the B3 branch. Local x86 perf
   capture/analyze/report, ownership, caller-attribution, and pre-captured CI
-  fixture coverage are complete. A2 has not started.
+  fixture coverage are complete.
 
   B3 is implemented on stage/b3-patch-gen from the B2 branch. Patch generation,
   full Gate status selection, files_touched_policy, and patch-report.md are

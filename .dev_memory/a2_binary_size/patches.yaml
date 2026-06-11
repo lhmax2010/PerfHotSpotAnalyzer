@@ -1,0 +1,41 @@
+patches:
+  - id: p001
+    title: "readelf section parser"
+    commit: "cbcd962"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/binary_size.py"
+      - "tests/unit/test_a2_binary_size_parser.py"
+    rationale: "A2 requires readelf-based section header parsing and SHF_ALLOC recognition."
+    test_commit: "cbcd962"
+  - id: p002
+    title: "binary-size-large findings"
+    commit: "4306b92"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/binary_size.py"
+      - "tests/unit/test_a2_binary_size_large.py"
+    rationale: "A2 requires top-n, section-ratio, absolute, and user-budget large-section findings with top-n noise reduction."
+    test_commit: "4306b92"
+  - id: p003
+    title: "binary-size-regression findings"
+    commit: "f43b7a3"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/binary_size.py"
+      - "tests/unit/test_a2_binary_size_regression.py"
+    rationale: "A2 requires current/baseline ELF section pairing and delta findings."
+    test_commit: "f43b7a3"
+  - id: p004
+    title: "binary-size CLI command"
+    commit: "b8f7044"
+    files_changed:
+      - "cli/perf_hotspot_analyzer.py"
+      - "tests/unit/test_a2_binary_size_cli.py"
+    rationale: "A2 requires a CLI entrypoint for single and baseline ELF binary-size analysis."
+    test_commit: "b8f7044"
+  - id: p005
+    title: "real ELF fixtures and E2E tests"
+    commit: "4b2b0ed"
+    files_changed:
+      - "tests/fixtures/golden/live-perf/binary-size/**"
+      - "tests/functional/test_a2_binary_size.py"
+    rationale: "A2 DoD requires large and regression paths to run end-to-end on pre-generated ELF fixtures."
+    test_commit: "4b2b0ed"
