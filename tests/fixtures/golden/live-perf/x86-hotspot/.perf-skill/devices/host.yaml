@@ -1,0 +1,8 @@
+name: host
+backend: local
+host: host
+remote_workdir: ./work
+perf_path: perf
+needs_sudo: false
+arch: x86_64
+target_has_stackcollapse: false

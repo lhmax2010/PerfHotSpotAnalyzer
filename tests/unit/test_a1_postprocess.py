@@ -246,3 +246,61 @@ def test_third_party_stack_without_owned_frame_is_not_actionable(tmp_path: Path)
 
     assert hotspots[0].actionability == "not-actionable"
     assert hotspots[0].actionability_reason == "no owned frame in callgraph"
+
+
+def test_nearest_to_entry_attribution_strategy_selects_outer_owned_frame(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    profile = postprocess.load_ownership_profile(write_ownership(tmp_path))
+    profile = postprocess.OwnershipProfile(
+        owned_build_id_sources=profile.owned_build_id_sources,
+        owned_paths=profile.owned_paths,
+        third_party_paths=profile.third_party_paths,
+        system_paths=profile.system_paths,
+        attribution_strategy="nearest-to-entry",
+    )
+    frames = [
+        postprocess.Frame("g_signal_emit", "/usr/lib64/libgobject-2.0.so.0", ownership="third-party"),
+        postprocess.Frame("my_element_chain", "/usr/lib64/myplugin/libdemo-plugin.so", ownership="owned"),
+        postprocess.Frame("gst_my_element_loop", "/usr/lib64/myplugin/libdemo-plugin.so", ownership="owned"),
+    ]
+
+    selected = postprocess.select_attribution_frame(frames, profile)
+
+    assert selected.symbol == "gst_my_element_loop"
+
+
+def test_unknown_hotspot_is_informational(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    profile = postprocess.load_ownership_profile(write_ownership(tmp_path))
+    samples = [
+        postprocess.StackSample(
+            frames=[
+                postprocess.Frame("mystery_hot", "/opt/unknown/libmystery.so", ownership="unknown"),
+            ]
+        )
+    ]
+
+    hotspots = postprocess.analyze_hotspots(
+        samples,
+        profile=profile,
+        repo_root=tmp_path,
+        total_samples=1,
+        top_n=1,
+    )
+
+    assert hotspots[0].actionability == "informational"
+    assert hotspots[0].actionability_reason == "unknown hotspot ownership"
+
+
+def test_parse_dso_build_ids_maps_paths(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    dso_list = tmp_path / "dso-list.txt"
+    dso_list.write_text(
+        "1111aaaa /tmp/x86-hotspot/slow-loop\n2222bbbb /usr/lib64/libgobject-2.0.so.0\n",
+        encoding="utf-8",
+    )
+
+    assert postprocess.parse_dso_build_ids(dso_list) == {
+        "/tmp/x86-hotspot/slow-loop": "1111aaaa",
+        "/usr/lib64/libgobject-2.0.so.0": "2222bbbb",
+    }

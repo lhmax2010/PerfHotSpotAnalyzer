@@ -1,0 +1,8 @@
+{
+  "cpu_governor": "performance",
+  "affinity": "0-3",
+  "thermal_state": "unknown",
+  "repeat_count": 1,
+  "warmup_count": 0,
+  "target_has_stackcollapse": false
+}

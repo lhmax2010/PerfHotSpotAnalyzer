@@ -1,0 +1,5 @@
+# Children      Self  Command    Shared Object              Symbol
+  55.56%     55.56%  slow-loop  slow-loop                  [.] busy_loop
+  22.22%     22.22%  slow-loop  libgobject-2.0.so.0        [.] g_signal_emit
+  11.11%     11.11%  slow-loop  libc-2.35.so               [.] malloc
+  11.11%     11.11%  slow-loop  libmystery.so              [.] mystery_hot

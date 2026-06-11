@@ -1,0 +1,11 @@
+owned_build_id_sources: []
+owned_paths:
+  - /tmp/x86-hotspot/slow-loop
+third_party_paths:
+  - /usr/lib64/libg*.so*
+  - /usr/lib/libg*.so*
+system_paths:
+  - /lib64/libc-*.so*
+  - /lib*/libc-*.so*
+  - "[kernel.kallsyms]"
+attribution_strategy: nearest-to-hotspot

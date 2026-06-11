@@ -1,0 +1,4 @@
+main;busy_loop 5
+main;busy_loop;g_signal_emit 2
+malloc 1
+mystery_hot 1

@@ -1,0 +1,14 @@
+device: host
+target:
+  kind: command
+  command: "./slow-loop 4000000"
+  commit: fixture-a1
+perf:
+  events: [cycles]
+  freq_hz: 999
+  callgraph: auto
+  duration_s: 2
+  repeat: 1
+  warmup: 0
+output:
+  bundle_name: x86-hotspot-bundle
