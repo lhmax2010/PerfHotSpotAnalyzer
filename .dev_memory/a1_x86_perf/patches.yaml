@@ -1,0 +1,53 @@
+patches:
+  - id: p001
+    title: "DeviceRunner local backend"
+    commit: "521b479"
+    files_changed:
+      - "common/device_runner.py"
+      - "common/simple_yaml.py"
+      - "tests/unit/test_a1_device_runner.py"
+    rationale: "A1 requires DeviceRunner shell/push/pull with backend=local before ssh/sdb work."
+    test_commit: "521b479"
+  - id: p002
+    title: "Perf preflight checks"
+    commit: "2a64628"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/preflight.py"
+      - "tests/unit/test_a1_preflight.py"
+    rationale: "A1 requires perf version, paranoid, CAP_PERFMON, and adaptive callgraph detection without sudo."
+    test_commit: "2a64628"
+  - id: p003
+    title: "Local capture bundle generation"
+    commit: "01452f5"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/capture.py"
+      - "skills/perf-hotspot-analyzer/target-side/runner.sh"
+      - "tests/unit/test_a1_capture.py"
+    rationale: "A1 requires local perf capture artifacts with perf-script.txt as the primary source."
+    test_commit: "01452f5"
+  - id: p004
+    title: "Ownership and caller attribution"
+    commit: "2adb1c8"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/postprocess.py"
+      - "tests/unit/test_a1_postprocess.py"
+    rationale: "A1 requires ownership.yaml classification and attribution_anchor generation/downgrade behavior."
+    test_commit: "2adb1c8"
+  - id: p005
+    title: "Analyzer report and CLI"
+    commit: "66e2339"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/build_report.py"
+      - "cli/perf_hotspot_analyzer.py"
+      - "tests/unit/test_a1_build_report.py"
+    rationale: "A1 requires canonical performance-findings.json, run-report, analysis-report, and CLI subcommands."
+    test_commit: "66e2339"
+  - id: p006
+    title: "x86 hotspot fixture and tests"
+    commit: "1b9e2ed"
+    files_changed:
+      - "tests/fixtures/golden/live-perf/x86-hotspot/**"
+      - "tests/functional/test_a1_x86_perf.py"
+      - "tests/unit/test_a1_postprocess.py"
+    rationale: "A1 DoD requires a pre-captured x86 hotspot fixture with Top-1 target hit and CI-safe tests."
+    test_commit: "1b9e2ed"
