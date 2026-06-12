@@ -1,3 +1,36 @@
 mode: full
-output_dir: out
-validate_before_output: true
+run_id: example-run
+repo_root: .
+output_dir: .perf-skill/runs
+non_interactive: false
+
+timeouts:
+  command_s: 300
+
+gates:
+  gate_findings_review: true
+  gate_patch_approval: true
+
+a:
+  # Live path: run capture first with a device profile referenced by the job.
+  capture_job: .perf-skill/jobs/example-capture-job.yaml
+
+  # CI/offline path: use a pre-captured bundle instead of live capture.
+  # bundle_dir: tests/fixtures/golden/live-perf/x86-hotspot/bundle
+
+  # Ownership profile consumed by Skill A analyze.
+  ownership: .perf-skill/ownership.yaml
+  top_n: 10
+  keep_remote: false
+
+b:
+  # B-only mode reads this input.  In full mode the workflow uses Skill A output.
+  input: performance-findings.json
+  format: analyzer-json
+  repo_root: .
+
+  # Optional adapter fields for google-benchmark or renamed benchmarks.
+  # baseline_report: bench-before.json
+  # renamed_map:
+  #   BM_OldName: BM_NewName
+  # target_name: demo-target
