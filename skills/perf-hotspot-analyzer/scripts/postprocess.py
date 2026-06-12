@@ -6,6 +6,7 @@ import argparse
 import fnmatch
 import json
 import re
+import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -117,6 +118,13 @@ def postprocess_bundle(
     dso_build_ids = parse_dso_build_ids(bundle / manifest["artifacts"]["dso_list"])
     perf_script = bundle / manifest["artifacts"]["perf_script"]
     samples = parse_perf_script(perf_script)
+    tizen = build_tizen_context(
+        manifest=manifest,
+        bundle_dir=bundle,
+        repo_root=Path(repo_root),
+        samples=samples,
+        dso_build_ids=dso_build_ids,
+    )
     classified_samples, decisions = classify_samples(samples, profile, dso_build_ids)
     hotspots = analyze_hotspots(
         classified_samples,
@@ -132,6 +140,7 @@ def postprocess_bundle(
         hotspots=hotspots,
         ownership_decisions=decisions,
         total_samples=len(classified_samples),
+        tizen=tizen,
     )
     if output is not None:
         out = Path(output)
@@ -219,6 +228,163 @@ def parse_dso_build_ids(path: str | Path) -> dict[str, str]:
     return result
 
 
+def build_tizen_context(
+    *,
+    manifest: dict[str, Any],
+    bundle_dir: Path,
+    repo_root: Path,
+    samples: Sequence[StackSample],
+    dso_build_ids: dict[str, str],
+) -> dict[str, Any] | None:
+    device = manifest.get("device", {})
+    arch = device.get("arch") if isinstance(device, dict) else None
+    if arch not in {"armv7", "aarch64"} and manifest.get("backend") not in {"ssh", "sdb"}:
+        return None
+    debuginfo_roots = [
+        resolve_host_path(root, repo_root)
+        for root in device.get("debuginfo_roots", [])
+        if isinstance(device, dict)
+    ]
+    sysroot = (
+        resolve_host_path(device.get("sysroot"), repo_root)
+        if isinstance(device, dict) and device.get("sysroot")
+        else None
+    )
+    mappings: list[dict[str, Any]] = []
+    mapping_by_dso: dict[str, dict[str, Any]] = {}
+    for dso, build_id in sorted(dso_build_ids.items()):
+        debug_path = find_debug_file(build_id, debuginfo_roots)
+        host_path = map_target_path_to_sysroot(dso, sysroot)
+        mapping = {
+            "target_path": dso,
+            "host_path": str(host_path) if host_path is not None else "",
+            "debug_path": str(debug_path) if debug_path is not None else "",
+            "source_path": "",
+            "build_id": build_id,
+        }
+        mappings.append(mapping)
+        mapping_by_dso[dso] = mapping
+    for sample in samples:
+        for frame in sample.frames:
+            mapping = mapping_by_dso.get(frame.dso)
+            if mapping is None:
+                continue
+            debug_path = Path(mapping["debug_path"]) if mapping.get("debug_path") else None
+            resolved = resolve_frame_source(
+                frame=frame,
+                debug_path=debug_path,
+                repo_root=repo_root,
+            )
+            if resolved is None:
+                continue
+            source_path, line = resolved
+            frame.file = source_path
+            frame.line_start = line
+            frame.line_end = line
+            if not mapping["source_path"]:
+                mapping["source_path"] = source_path
+    return {
+        "arch": arch or "",
+        "backend": manifest.get("backend"),
+        "sysroot": str(sysroot) if sysroot is not None else "",
+        "debuginfo_roots": [str(root) for root in debuginfo_roots],
+        "path_mapping": mappings,
+        "bundle_dir": str(bundle_dir),
+    }
+
+
+def resolve_host_path(raw_path: object, repo_root: Path) -> Path:
+    path = Path(str(raw_path)).expanduser()
+    if path.is_absolute():
+        return path
+    return repo_root / path
+
+
+def find_debug_file(build_id: str | None, roots: Sequence[Path]) -> Path | None:
+    if not build_id:
+        return None
+    normalized = build_id.lower()
+    build_id_path = Path(".build-id") / normalized[:2] / f"{normalized[2:]}.debug"
+    for root in roots:
+        candidate = root / build_id_path
+        if candidate.exists():
+            return candidate
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file() and normalized in path.name.lower():
+                return path
+    return None
+
+
+def map_target_path_to_sysroot(target_path: str, sysroot: Path | None) -> Path | None:
+    if sysroot is None:
+        return None
+    relative = target_path.lstrip("/")
+    candidate = sysroot / relative
+    return candidate if candidate.exists() else candidate
+
+
+def resolve_frame_source(
+    *,
+    frame: Frame,
+    debug_path: Path | None,
+    repo_root: Path,
+) -> tuple[str, int] | None:
+    if debug_path is not None and debug_path.exists():
+        resolved = run_addr2line(debug_path, frame.ip)
+        if resolved is not None:
+            source_path, line = resolved
+            mapped = map_source_to_repo(source_path, repo_root)
+            return mapped, line
+    anchor = find_source_anchor(frame.symbol, repo_root, dso=frame.dso)
+    if anchor is None:
+        return None
+    return str(anchor["file"]), int(anchor.get("line_start", 1))
+
+
+def run_addr2line(debug_path: Path, ip: str) -> tuple[str, int] | None:
+    try:
+        result = subprocess.run(
+            ["addr2line", "-e", str(debug_path), "-f", "-C", ip],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None
+    location = lines[1]
+    if location.startswith("??"):
+        return None
+    match = re.match(r"(.+):(\d+)(?:\s.*)?$", location)
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
+
+
+def map_source_to_repo(source_path: str, repo_root: Path) -> str:
+    source = Path(source_path)
+    if source.exists():
+        try:
+            return str(source.relative_to(repo_root))
+        except ValueError:
+            return str(source)
+    candidates = [
+        path
+        for path in _iter_source_files(repo_root)
+        if path.name == source.name or str(path).endswith(str(source).lstrip("/"))
+    ]
+    if len(candidates) == 1:
+        return str(candidates[0].relative_to(repo_root))
+    return source_path
+
+
 def classify_samples(
     samples: Sequence[StackSample],
     profile: OwnershipProfile,
@@ -283,7 +449,11 @@ def analyze_hotspots(
     for rank, ((_symbol, _dso), group) in enumerate(sorted_groups, start=1):
         representative = _representative_stack(group)
         hot = representative.frames[0]
-        code_anchor = find_source_anchor(hot.symbol, repo_root, dso=hot.dso)
+        code_anchor = anchor_from_frame(hot, repo_root) or find_source_anchor(
+            hot.symbol,
+            repo_root,
+            dso=hot.dso,
+        )
         attribution_anchor: dict[str, Any] | None = None
         bottleneck_class: list[str] = []
         actionability, reason = _actionability_for_hotspot(
@@ -296,7 +466,16 @@ def analyze_hotspots(
         if hot.ownership in {"third-party", "system"}:
             attribution_frame = select_attribution_frame(representative.frames, profile)
             if attribution_frame is not None:
-                attribution_anchor = find_source_anchor(
+                attribution_anchor = anchor_from_frame(
+                    attribution_frame,
+                    repo_root,
+                    resolution_method="caller-attribution",
+                    confidence=0.80,
+                    evidence=(
+                        f"hot {hot.symbol} called from owned frame "
+                        f"{attribution_frame.symbol}"
+                    ),
+                ) or find_source_anchor(
                     attribution_frame.symbol,
                     repo_root,
                     dso=attribution_frame.dso,
@@ -400,6 +579,36 @@ def find_source_anchor(
     }
 
 
+def anchor_from_frame(
+    frame: Frame,
+    repo_root: Path,
+    *,
+    resolution_method: str = "addr2line",
+    confidence: float = 0.85,
+    evidence: str | None = None,
+) -> dict[str, Any] | None:
+    if not frame.file or not frame.line_start:
+        return None
+    file_value = frame.file
+    path = Path(file_value)
+    if path.is_absolute():
+        try:
+            file_value = str(path.relative_to(repo_root))
+        except ValueError:
+            file_value = map_source_to_repo(str(path), repo_root)
+    return {
+        "symbol": frame.symbol,
+        "dso": frame.dso,
+        "file": file_value,
+        "line_start": int(frame.line_start),
+        "line_end": int(frame.line_end or frame.line_start),
+        "language": _language_for(Path(file_value)),
+        "anchor_confidence": confidence,
+        "resolution_method": resolution_method,
+        "evidence": evidence or f"{resolution_method} resolved {frame.ip}",
+    }
+
+
 def build_postprocess_document(
     *,
     bundle_dir: Path,
@@ -407,10 +616,12 @@ def build_postprocess_document(
     hotspots: Sequence[Hotspot],
     ownership_decisions: Sequence[OwnershipDecision],
     total_samples: int,
+    tizen: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    document = {
         "schema_version": "postprocess/v1",
         "bundle_dir": str(bundle_dir),
+        "device": manifest.get("device", {}),
         "source_report": {
             "id": "perf-script",
             "path": manifest["artifacts"]["perf_script"],
@@ -435,6 +646,9 @@ def build_postprocess_document(
             "timestamp": datetime.now(UTC).isoformat(),
         },
     }
+    if tizen is not None:
+        document["tizen"] = tizen
+    return document
 
 
 def write_run_report(
@@ -601,7 +815,17 @@ def _actionability_for_hotspot(
         attribution = select_attribution_frame(frames, profile)
         if attribution is None:
             return "not-actionable", "no owned frame in callgraph"
-        if find_source_anchor(attribution.symbol, repo_root, dso=attribution.dso) is None:
+        if (
+            anchor_from_frame(
+                attribution,
+                repo_root,
+                resolution_method="caller-attribution",
+                confidence=0.80,
+            )
+            is None
+            and find_source_anchor(attribution.symbol, repo_root, dso=attribution.dso)
+            is None
+        ):
             return "not-actionable", "owned attribution frame had no source anchor"
         return "actionable", "owned attribution frame resolved"
     return "informational", "unknown hotspot ownership"

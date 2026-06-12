@@ -85,6 +85,8 @@ def build_performance_findings(
             "timestamp": datetime.now(UTC).isoformat(),
         },
     }
+    if "tizen" in analysis:
+        document["tizen"] = dict(analysis["tizen"])
     return document
 
 
@@ -295,7 +297,7 @@ def _target_from_analysis(analysis: Mapping[str, Any], repo_root: Path) -> dict[
         "repo_root": str(repo_root),
         "commit": raw.get("commit") or "",
         "platform": {
-            "os": "linux",
+            "os": "tizen" if "tizen" in analysis else "linux",
             "arch": _arch_from_analysis(analysis),
             "kernel": os.uname().release if hasattr(os, "uname") else "",
         },
