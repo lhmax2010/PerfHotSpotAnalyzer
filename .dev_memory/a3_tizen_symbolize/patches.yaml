@@ -1,0 +1,51 @@
+patches:
+  - id: p001
+    title: "ssh DeviceRunner backend"
+    commit: "df463a9"
+    files_changed:
+      - "common/device_runner.py"
+      - "tests/unit/test_a1_device_runner.py"
+    rationale: "A3 requires ssh/scp shell, push, and pull with tracing and Tizen remediation."
+    test_commit: "df463a9"
+  - id: p002
+    title: "sdb DeviceRunner backend"
+    commit: "763ee21"
+    files_changed:
+      - "common/device_runner.py"
+      - "tests/unit/test_a1_device_runner.py"
+    rationale: "A3 requires sdb shell, push, and pull as the Tizen fallback backend."
+    test_commit: "763ee21"
+  - id: p003
+    title: "remote Tizen capture flow"
+    commit: "5cac001"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/capture.py"
+      - "skills/perf-hotspot-analyzer/target-side/runner.sh"
+      - "tests/unit/test_a1_capture.py"
+    rationale: "A3 requires pushing runner.sh, running target perf capture, pulling the bundle, and preserving perf-script.txt."
+    test_commit: "5cac001"
+  - id: p004
+    title: "Tizen cross-symbolization and path mapping"
+    commit: "92f9ab9"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/postprocess.py"
+      - "skills/perf-hotspot-analyzer/scripts/build_report.py"
+      - "skills/perf-hotspot-analyzer/scripts/capture.py"
+      - "tests/unit/test_a3_cross_symbolize.py"
+    rationale: "A3 requires host-side build-id/debuginfo lookup, sysroot path mapping, and tizen.path_mapping in findings."
+    test_commit: "92f9ab9"
+  - id: p005
+    title: "Tizen pre-captured fixture and E2E"
+    commit: "d47a81f"
+    files_changed:
+      - "tests/fixtures/golden/live-perf/tizen-arm/**"
+      - "tests/functional/test_a3_tizen_symbolize.py"
+    rationale: "A3 DoD requires an offline Tizen/ARM-style fixture that anchors to file:line with confidence >= 0.7."
+    test_commit: "d47a81f"
+  - id: p006
+    title: "Tizen live device guide"
+    commit: "16e1805"
+    files_changed:
+      - "docs/test-guides/a3-tizen-symbolize.md"
+    rationale: "A3 requires a manual guide for ssh+sdb Tizen setup and live capture validation."
+    test_commit: "16e1805"
