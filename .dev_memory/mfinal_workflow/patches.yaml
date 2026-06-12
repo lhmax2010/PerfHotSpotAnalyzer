@@ -1,0 +1,46 @@
+patches:
+  - id: p001
+    title: "pipeline orchestration skeleton"
+    commit: "8293c87"
+    files_changed:
+      - "workflows/perf-optimization-pipeline/orchestrate.py"
+    rationale: "M-final requires full, b-only, and a-only workflow modes that call existing A/B CLIs."
+    test_commit: "8293c87"
+  - id: p002
+    title: "manual gates and non-interactive pass"
+    commit: "3767929"
+    files_changed:
+      - "workflows/perf-optimization-pipeline/orchestrate.py"
+    rationale: "M-final requires Gate 1 and Gate 2 with interactive Y/n defaults and safe non-interactive PASS records."
+    test_commit: "3767929"
+  - id: p003
+    title: "stage resume"
+    commit: "627cfb6"
+    files_changed:
+      - "workflows/perf-optimization-pipeline/orchestrate.py"
+    rationale: "M-final requires recovery from the nearest successful stage using per-run state."
+    test_commit: "627cfb6"
+  - id: p004
+    title: "pipeline CLI"
+    commit: "8c64ddc"
+    files_changed:
+      - "cli/perf_optimization_pipeline.py"
+    rationale: "M-final requires pipeline run --config with mode override and tracing/exit-code behavior."
+    test_commit: "8c64ddc"
+  - id: p005
+    title: "merged report"
+    commit: "bdfae69"
+    files_changed:
+      - "workflows/perf-optimization-pipeline/orchestrate.py"
+    rationale: "M-final requires a human-readable merged report with Gate, finding, patch, and review status."
+    test_commit: "bdfae69"
+  - id: p006
+    title: "workflow docs and tests"
+    commit: "d51308b"
+    files_changed:
+      - "workflows/perf-optimization-pipeline/WORKFLOW.md"
+      - "workflows/perf-optimization-pipeline/config.example.yaml"
+      - "tests/functional/test_mfinal_workflow.py"
+      - "tests/unit/test_mfinal_orchestrate.py"
+    rationale: "M-final DoD requires three-mode functional coverage, non-interactive safety coverage, and resume coverage."
+    test_commit: "d51308b"

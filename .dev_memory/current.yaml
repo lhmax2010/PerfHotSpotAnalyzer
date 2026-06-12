@@ -1,7 +1,7 @@
 schema_version: 1
-shared_current: mfinal_workflow
-shared_last_completed: a3_tizen_symbolize
-session_count: 9
+shared_current: minteg_integration
+shared_last_completed: mfinal_workflow
+session_count: 10
 milestones:
   m0_schema:
     status: completed
@@ -44,10 +44,10 @@ milestones:
     last_commit: tag:stage-b3-patch-gen-done
     review_status: pending
   mfinal_workflow:
-    status: TODO
-    branch: null
-    last_commit: null
-    review_status: not-started
+    status: completed
+    branch: stage/mfinal-workflow
+    last_commit: tag:stage-mfinal-workflow-done
+    review_status: pending
   minteg_integration:
     status: TODO
     branch: null
@@ -55,20 +55,24 @@ milestones:
     review_status: not-started
 lines:
   A:
-    current: mfinal_workflow
-    last_completed: a3_tizen_symbolize
-    last_commit: tag:stage-a3-tizen-symbolize-done
+    current: minteg_integration
+    last_completed: mfinal_workflow
+    last_commit: tag:stage-mfinal-workflow-done
     review_status: pending
   B:
-    current: mfinal_workflow
-    last_completed: b3_patch_gen
-    last_commit: tag:stage-b3-patch-gen-done
+    current: minteg_integration
+    last_completed: mfinal_workflow
+    last_commit: tag:stage-mfinal-workflow-done
     review_status: pending
 next_steps:
-  - "Wait for A3 Tizen symbolization review. Do not continue to M-final until A3 is reviewed."
-  - "B3 patch-generation review is also still pending; do not continue to M-final until B3 is reviewed."
+  - "Wait for M-final workflow review. Do not continue to M-integ until M-final is reviewed."
 blocked_on: null
 notes: |
+  M-final is implemented on stage/mfinal-workflow from the A3 branch. The
+  non-triggerable workflow supports full, b-only, and a-only modes; two human
+  gates; non-interactive review-package-only operation; stage resume; CLI
+  integration; and merged reports.
+
   A3 is implemented on stage/a3-tizen-symbolize from the A2 branch. ssh/sdb
   DeviceRunner backends, remote Tizen capture flow, host-side build-id/sysroot
   cross-symbolization, tizen.path_mapping output, offline Tizen-style fixture,
@@ -84,4 +88,4 @@ notes: |
 
   B3 is implemented on stage/b3-patch-gen from the B2 branch. Patch generation,
   full Gate status selection, files_touched_policy, and patch-report.md are
-  covered. M-final has not started.
+  covered.
