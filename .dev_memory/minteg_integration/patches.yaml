@@ -1,0 +1,27 @@
+patches:
+  - id: p001
+    title: "Cline rules and CLI examples"
+    commit: "82f8070"
+    files_changed:
+      - "integrations/cline/README.md"
+      - "integrations/cline/examples/**"
+      - "tests/integration/test_cline_examples.py"
+    rationale: "M-integ requires Cline .clinerules guidance plus a minimal runnable end-to-end example."
+    test_commit: "82f8070"
+  - id: p002
+    title: "Compiling Agent CLI adapter draft"
+    commit: "94d20a7"
+    files_changed:
+      - "integrations/compiling_agent/README.md"
+      - "integrations/compiling_agent/__init__.py"
+      - "integrations/compiling_agent/adapter.py"
+      - "tests/unit/test_compiling_agent_adapter.py"
+    rationale: "M-integ requires a CLI-based adapter skeleton with timeout/non-zero degradation and user-supplied API detail checklist."
+    test_commit: "94d20a7"
+  - id: p003
+    title: "Integration guide"
+    commit: "eacc481"
+    files_changed:
+      - "docs/integration_guide.md"
+    rationale: "M-integ requires a user-facing §12 integration overview and unified CLI contract."
+    test_commit: "eacc481"

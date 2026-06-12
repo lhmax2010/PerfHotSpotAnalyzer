@@ -1,7 +1,7 @@
 schema_version: 1
-shared_current: minteg_integration
-shared_last_completed: mfinal_workflow
-session_count: 10
+shared_current: v1_complete
+shared_last_completed: minteg_integration
+session_count: 11
 milestones:
   m0_schema:
     status: completed
@@ -49,25 +49,30 @@ milestones:
     last_commit: tag:stage-mfinal-workflow-done
     review_status: pending
   minteg_integration:
-    status: TODO
-    branch: null
-    last_commit: null
-    review_status: not-started
+    status: completed
+    branch: stage/minteg-integration
+    last_commit: tag:stage-minteg-integration-done
+    review_status: pending
 lines:
   A:
-    current: minteg_integration
-    last_completed: mfinal_workflow
-    last_commit: tag:stage-mfinal-workflow-done
+    current: v1_complete
+    last_completed: minteg_integration
+    last_commit: tag:stage-minteg-integration-done
     review_status: pending
   B:
-    current: minteg_integration
-    last_completed: mfinal_workflow
-    last_commit: tag:stage-mfinal-workflow-done
+    current: v1_complete
+    last_completed: minteg_integration
+    last_commit: tag:stage-minteg-integration-done
     review_status: pending
 next_steps:
-  - "Wait for M-final workflow review. Do not continue to M-integ until M-final is reviewed."
+  - "Wait for M-integ review. v1 implementation is complete after this review."
+  - "Future work belongs in v1.1/v2 backlog: closed-loop patch validation, true measured_impact, private Compiling Agent API integration, broader profiler/parser support."
 blocked_on: null
 notes: |
+  M-integ is implemented on stage/minteg-integration from the M-final branch.
+  Cline CLI/rules examples, a Compiling Agent CLI adapter draft, and the v1
+  integration guide are complete. This is the final v1 milestone.
+
   M-final is implemented on stage/mfinal-workflow from the A3 branch. The
   non-triggerable workflow supports full, b-only, and a-only modes; two human
   gates; non-interactive review-package-only operation; stage resume; CLI
