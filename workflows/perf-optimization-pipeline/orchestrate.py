@@ -154,8 +154,25 @@ class PipelineOrchestrator:
             else:
                 performance_findings = self._external_b_input()
 
+            if self.mode == "full":
+                self._run_gate(
+                    name="gate_findings_review",
+                    title="Gate 1 findings review",
+                    artifact=performance_findings,
+                    prompt_text=(
+                        "Gate 1: approve findings for Skill B patch suggestion "
+                        "generation? [Y/n] "
+                    ),
+                )
+
             if self.mode in {"full", "b-only"}:
                 patches = self._run_b(performance_findings)
+                self._run_gate(
+                    name="gate_patch_approval",
+                    title="Gate 2 patch approval",
+                    artifact=patches,
+                    prompt_text="Gate 2: approve generated patch review package? [Y/n] ",
+                )
 
             self._write_state()
         except Exception as exc:
@@ -360,6 +377,44 @@ class PipelineOrchestrator:
         )
         return patches
 
+    def _run_gate(
+        self,
+        *,
+        name: str,
+        title: str,
+        artifact: Path,
+        prompt_text: str,
+    ) -> None:
+        gates_config = _mapping(self.config.get("gates"))
+        if gates_config.get(name) is False:
+            decision = "pass"
+            reason = "gate disabled by config"
+            mode = "disabled"
+        elif self.non_interactive:
+            decision = "pass"
+            reason = "non-interactive auto pass; no apply/commit/push performed"
+            mode = "non-interactive"
+        else:
+            answer = self.prompt(prompt_text).strip().lower()
+            decision = "pass" if answer in {"", "y", "yes"} else "rejected"
+            reason = "interactive approval" if decision == "pass" else "interactive rejection"
+            mode = "interactive"
+
+        record = {
+            "status": decision,
+            "title": title,
+            "mode": mode,
+            "reason": reason,
+            "artifact": str(artifact),
+            "counts": _gate_counts(artifact),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        self.state.setdefault("gates", {})[name] = record
+        self._write_state()
+        self._trace(name, decision, mode=mode, artifact=str(artifact), reason=reason)
+        if decision != "pass":
+            raise PipelineError(f"{title} rejected: {reason}")
+
     def _run_command(self, stage: str, cmd: list[str]) -> CommandResult:
         timeout_s = _command_timeout(self.config)
         self._trace(stage, "command_start", argv=cmd, timeout_s=timeout_s)
@@ -441,7 +496,7 @@ class PipelineOrchestrator:
             },
             "findings": _artifact_counts(performance_findings, "findings"),
             "anchors": {"resolved": 0, "confidence_distribution": {}},
-            "gate_decisions": [],
+            "gate_decisions": _gate_decision_records(self.state),
             "patches": _artifact_counts(patches, "patches"),
             "degradations": [],
             "artifacts": {
@@ -586,6 +641,31 @@ def _artifact_counts(path: Path | None, key: str) -> dict[str, Any]:
         kind = str(item.get("kind") or item.get("status") or "unknown")
         by_kind[kind] = by_kind.get(kind, 0) + 1
     return {"total": len(items), "by_kind": by_kind}
+
+
+def _gate_counts(path: Path) -> dict[str, Any]:
+    if path.name == "patches.json":
+        return _artifact_counts(path, "patches")
+    return _artifact_counts(path, "findings")
+
+
+def _gate_decision_records(state: Mapping[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    gates = _mapping(state.get("gates"))
+    for name, gate in sorted(gates.items()):
+        if not isinstance(gate, Mapping):
+            continue
+        records.append(
+            {
+                "gate": str(name),
+                "decision": gate.get("status", "unknown"),
+                "mode": gate.get("mode", "unknown"),
+                "reason": gate.get("reason", ""),
+                "artifact": gate.get("artifact", ""),
+                "counts": gate.get("counts", {}),
+            }
+        )
+    return records
 
 
 def _decode_timeout_stream(value: bytes | str | None) -> str:
