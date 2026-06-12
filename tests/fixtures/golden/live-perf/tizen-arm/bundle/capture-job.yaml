@@ -1,0 +1,13 @@
+device: tizen-arm-ssh
+target:
+  kind: command
+  command: "/usr/bin/a3-demo --fixture"
+perf:
+  events: [cycles]
+  freq_hz: 499
+  callgraph: dwarf
+  duration_s: 2
+  repeat: 1
+  warmup: 0
+output:
+  bundle_name: tizen-arm-fixture

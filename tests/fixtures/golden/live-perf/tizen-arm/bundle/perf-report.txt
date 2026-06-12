@@ -1,0 +1,4 @@
+# Children      Self  Command  Shared Object        Symbol
+# ........  ........  .......  ..................   ................
+    66.67%    66.67%  a3-demo  liba3demo.so         [.] tizen_hot
+    33.33%    33.33%  a3-demo  libgobject-2.0.so.0  [.] g_signal_emit

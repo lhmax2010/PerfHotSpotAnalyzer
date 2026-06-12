@@ -1,0 +1,11 @@
+owned_build_id_sources: []
+owned_paths:
+  - /usr/lib/liba3demo.so
+third_party_paths:
+  - /usr/lib/libgobject-2.0.so*
+  - /usr/lib/libglib-2.0.so*
+system_paths:
+  - /lib/libc-*.so*
+  - /usr/lib/libc-*.so*
+  - "[kernel.kallsyms]"
+attribution_strategy: nearest-to-hotspot

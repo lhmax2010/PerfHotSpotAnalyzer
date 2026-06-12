@@ -1,0 +1,2 @@
+abcdef1234567890 /usr/lib/liba3demo.so
+0011223344556677 /usr/lib/libgobject-2.0.so.0

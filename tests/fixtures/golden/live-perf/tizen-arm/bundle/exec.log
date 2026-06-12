@@ -1,0 +1,3 @@
+2026-06-12T00:00:00Z runner start backend=ssh
+2026-06-12T00:00:01Z perf record complete
+2026-06-12T00:00:02Z perf script written
