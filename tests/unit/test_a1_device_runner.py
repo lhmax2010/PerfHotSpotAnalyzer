@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from common.device_runner import DeviceRunner, load_device_profile
+from common.device_runner import DeviceRunner, DeviceRunnerError, load_device_profile
 from common.simple_yaml import loads_yaml
 
 
@@ -19,6 +19,10 @@ def write_device_profile(root: Path, *, backend: str = "local") -> Path:
             [
                 "name: host",
                 f"backend: {backend}",
+                "host: 127.0.0.1",
+                "user: root",
+                "ssh_opts: \"-o ConnectTimeout=5\"",
+                "scp_opts: \"-q\"",
                 "arch: x86_64",
                 f"remote_workdir: {workdir}",
                 "perf_path: /usr/bin/perf",
@@ -101,10 +105,112 @@ def test_local_push_and_pull_copy_files(tmp_path: Path) -> None:
     assert pulled.read_text(encoding="utf-8") == "payload\n"
 
 
-@pytest.mark.parametrize("backend", ["ssh", "sdb"])
-def test_non_local_backends_are_reserved_for_a3(tmp_path: Path, backend: str) -> None:
-    write_device_profile(tmp_path, backend=backend)
+def test_sdb_backend_is_reserved_until_a3_p002(tmp_path: Path) -> None:
+    write_device_profile(tmp_path, backend="sdb")
     runner = DeviceRunner.from_name("host", repo_root=tmp_path)
 
     with pytest.raises(NotImplementedError, match="reserved for A3"):
         runner.shell("true", timeout_s=1)
+
+
+def test_ssh_shell_invokes_configured_target_and_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_ssh_tools(tmp_path)
+    monkeypatch.setenv("PATH", f"{fakebin}:{fakebin.parent}")
+    write_device_profile(tmp_path, backend="ssh")
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+
+    result = runner.shell("echo remote-ok", timeout_s=5)
+
+    assert result.returncode == 0
+    assert result.stdout == "remote-ok\n"
+    log = (tmp_path / "ssh.log").read_text(encoding="utf-8")
+    assert "-o ConnectTimeout=5 root@127.0.0.1 echo remote-ok" in log
+
+
+def test_ssh_shell_failure_reports_tizen_remediation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_ssh_tools(tmp_path)
+    monkeypatch.setenv("PATH", f"{fakebin}:{fakebin.parent}")
+    write_device_profile(tmp_path, backend="ssh")
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+
+    result = runner.shell("fail-permission", timeout_s=5)
+
+    assert result.returncode == 255
+    assert "Permission denied" in result.stderr
+    assert "openssh-server" in result.stderr
+    assert "authorized_keys" in result.stderr
+
+
+def test_ssh_push_and_pull_use_scp_with_remote_spec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_ssh_tools(tmp_path)
+    monkeypatch.setenv("PATH", f"{fakebin}:{fakebin.parent}")
+    write_device_profile(tmp_path, backend="ssh")
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+    source = tmp_path / "source.txt"
+    source.write_text("payload\n", encoding="utf-8")
+
+    runner.push(source, "/tmp/remote/source.txt")
+    runner.pull("/tmp/remote/source.txt", tmp_path / "pulled.txt")
+
+    log = (tmp_path / "scp.log").read_text(encoding="utf-8")
+    assert f"-q -r {source} root@127.0.0.1:/tmp/remote/source.txt" in log
+    assert f"-q -r root@127.0.0.1:/tmp/remote/source.txt {tmp_path / 'pulled.txt'}" in log
+
+
+def test_ssh_push_failure_raises_clear_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_ssh_tools(tmp_path, scp_fails=True)
+    monkeypatch.setenv("PATH", f"{fakebin}:{fakebin.parent}")
+    write_device_profile(tmp_path, backend="ssh")
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+    source = tmp_path / "source.txt"
+    source.write_text("payload\n", encoding="utf-8")
+
+    with pytest.raises(DeviceRunnerError, match="openssh-server"):
+        runner.push(source, "/tmp/remote/source.txt")
+
+
+def install_fake_ssh_tools(tmp_path: Path, *, scp_fails: bool = False) -> Path:
+    fakebin = tmp_path / "fakebin"
+    fakebin.mkdir()
+    ssh = fakebin / "ssh"
+    ssh.write_text(
+        "\n".join(
+            [
+                "#!/bin/bash",
+                f"printf '%s\\n' \"$*\" >> {tmp_path / 'ssh.log'}",
+                "cmd=\"${@: -1}\"",
+                "if [[ \"$cmd\" == fail-* ]]; then echo 'Permission denied (publickey).' >&2; exit 255; fi",
+                "if [[ \"$cmd\" == echo* ]]; then eval \"$cmd\"; else echo remote-ok; fi",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    ssh.chmod(0o755)
+    scp = fakebin / "scp"
+    scp.write_text(
+        "\n".join(
+            [
+                "#!/bin/bash",
+                f"printf '%s\\n' \"$*\" >> {tmp_path / 'scp.log'}",
+                "echo 'scp denied' >&2" if scp_fails else "true",
+                "exit 1" if scp_fails else "exit 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    scp.chmod(0o755)
+    return fakebin

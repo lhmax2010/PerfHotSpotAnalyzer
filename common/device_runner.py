@@ -1,8 +1,9 @@
-"""DeviceRunner abstraction with the A1 local backend implementation."""
+"""DeviceRunner abstraction for local, ssh, and sdb backends."""
 
 from __future__ import annotations
 
 import shutil
+import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -42,14 +43,20 @@ class DeviceProfile:
     sysroot: str | None = None
     debuginfo_roots: list[str] = field(default_factory=list)
     target_has_stackcollapse: bool = False
+    sdb_serial: str | None = None
+    tizen_version: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
+
+
+class DeviceRunnerError(RuntimeError):
+    """Raised when a backend operation cannot complete."""
 
 
 class DeviceRunner:
     """Run shell/push/pull against a configured device backend.
 
-    A1 implements only the local backend.  ssh and sdb are intentionally
-    reserved for A3 so the x86 fixture chain closes before Tizen device logic.
+    The local backend is used for x86 fixtures.  The ssh backend is the A3
+    Tizen main path, with sdb added as the fallback transport.
     """
 
     def __init__(self, profile: DeviceProfile, *, tracer: Any | None = None) -> None:
@@ -70,6 +77,8 @@ class DeviceRunner:
 
     def shell(self, cmd: str, timeout_s: int) -> CompletedRun:
         self._trace("shell", "start", command=cmd, timeout_s=timeout_s)
+        if self.profile.backend == "ssh":
+            return self._ssh_shell(cmd, timeout_s)
         if self.profile.backend != "local":
             return self._unsupported_backend("shell")
         started = time.monotonic()
@@ -118,6 +127,9 @@ class DeviceRunner:
 
     def push(self, local_path: str | Path, remote_path: str | Path) -> None:
         self._trace("push", "start", local_path=str(local_path), remote_path=str(remote_path))
+        if self.profile.backend == "ssh":
+            self._ssh_copy("push", Path(local_path), remote_path)
+            return
         if self.profile.backend != "local":
             self._unsupported_backend("push")
             return
@@ -126,6 +138,9 @@ class DeviceRunner:
 
     def pull(self, remote_path: str | Path, local_path: str | Path) -> None:
         self._trace("pull", "start", remote_path=str(remote_path), local_path=str(local_path))
+        if self.profile.backend == "ssh":
+            self._ssh_copy("pull", Path(local_path), remote_path)
+            return
         if self.profile.backend != "local":
             self._unsupported_backend("pull")
             return
@@ -145,6 +160,117 @@ class DeviceRunner:
         )
         self._trace(operation, "unsupported_backend", backend=self.profile.backend)
         raise NotImplementedError(message)
+
+    def _ssh_shell(self, cmd: str, timeout_s: int) -> CompletedRun:
+        target = self._ssh_target()
+        argv = ["ssh", *_split_options(self.profile.ssh_opts), target, cmd]
+        return self._run_backend_command(
+            step="shell",
+            argv=argv,
+            timeout_s=timeout_s,
+            command_for_result=cmd,
+            remediation=_ssh_remediation(self.profile),
+        )
+
+    def _ssh_copy(
+        self,
+        direction: str,
+        local_path: Path,
+        remote_path: str | Path,
+    ) -> None:
+        target_path = self._remote_spec(remote_path)
+        recursive = ["-r"]
+        if direction == "push":
+            argv = [
+                "scp",
+                *_split_options(self.profile.scp_opts),
+                *recursive,
+                str(local_path),
+                target_path,
+            ]
+        else:
+            argv = [
+                "scp",
+                *_split_options(self.profile.scp_opts),
+                *recursive,
+                target_path,
+                str(local_path),
+            ]
+        completed = self._run_backend_command(
+            step=direction,
+            argv=argv,
+            timeout_s=60,
+            command_for_result=" ".join(argv),
+            remediation=_ssh_remediation(self.profile),
+        )
+        if completed.returncode != 0:
+            raise DeviceRunnerError(completed.stderr)
+
+    def _run_backend_command(
+        self,
+        *,
+        step: str,
+        argv: list[str],
+        timeout_s: int,
+        command_for_result: str,
+        remediation: str,
+    ) -> CompletedRun:
+        self._trace(step, "exec", argv=argv, timeout_s=timeout_s)
+        started = time.monotonic()
+        try:
+            result = subprocess.run(
+                argv,
+                text=True,
+                capture_output=True,
+                timeout=timeout_s,
+                check=False,
+            )
+            stderr = result.stderr
+            if result.returncode != 0:
+                stderr = _with_remediation(stderr, remediation)
+            completed = CompletedRun(
+                args=command_for_result,
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=stderr,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+            self._trace(
+                step,
+                "finish",
+                returncode=completed.returncode,
+                elapsed_ms=completed.elapsed_ms,
+            )
+            return completed
+        except subprocess.TimeoutExpired as exc:
+            completed = CompletedRun(
+                args=command_for_result,
+                returncode=124,
+                stdout=_decode_timeout_stream(exc.stdout),
+                stderr=_with_remediation(
+                    _decode_timeout_stream(exc.stderr) or f"{step} timed out",
+                    remediation,
+                ),
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+                timed_out=True,
+            )
+            self._trace(
+                step,
+                "timeout",
+                returncode=completed.returncode,
+                elapsed_ms=completed.elapsed_ms,
+            )
+            return completed
+
+    def _ssh_target(self) -> str:
+        if not self.profile.host:
+            raise DeviceRunnerError("ssh backend requires device profile field 'host'")
+        if self.profile.user:
+            return f"{self.profile.user}@{self.profile.host}"
+        return self.profile.host
+
+    def _remote_spec(self, value: str | Path) -> str:
+        return f"{self._ssh_target()}:{value}"
 
     def _trace(self, step: str, event: str, **fields: Any) -> None:
         if self.tracer is not None:
@@ -179,6 +305,8 @@ def load_device_profile(name: str, *, repo_root: str | Path = ".") -> DeviceProf
         sysroot=_optional_str(raw.get("sysroot")),
         debuginfo_roots=[str(item) for item in raw.get("debuginfo_roots", [])],
         target_has_stackcollapse=bool(raw.get("target_has_stackcollapse", False)),
+        sdb_serial=_optional_str(raw.get("sdb_serial") or raw.get("serial")),
+        tizen_version=_optional_str(raw.get("tizen_version")),
         raw=raw,
     )
 
@@ -211,3 +339,28 @@ def _decode_timeout_stream(value: Any) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _split_options(options: str) -> list[str]:
+    values = []
+    for option in shlex.split(options):
+        values.append(str(Path(option).expanduser()) if option.startswith("~") else option)
+    return values
+
+
+def _with_remediation(stderr: str, remediation: str) -> str:
+    text = stderr.strip()
+    if text:
+        text += "\n"
+    return text + remediation
+
+
+def _ssh_remediation(profile: DeviceProfile) -> str:
+    target = profile.host or "<missing-host>"
+    return (
+        f"Remediation for ssh target {target}: verify network reachability, ssh key "
+        "authorization, user/host in the device profile, and Tizen image prerequisites. "
+        "For Tizen, use a root image or install/enable openssh-server, run "
+        "`systemctl enable sshd && systemctl start sshd`, and add the host public key "
+        "to ~/.ssh/authorized_keys. The scripts never run sudo or change target policy."
+    )
