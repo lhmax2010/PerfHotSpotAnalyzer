@@ -1,0 +1,9 @@
+mode: b-only
+run_id: cline-b-only
+repo_root: ../../..
+output_dir: out
+non_interactive: true
+b:
+  input: tests/fixtures/golden/positive/01-hotspot-binary-size-mixed/performance-findings.json
+  format: analyzer-json
+  repo_root: .
