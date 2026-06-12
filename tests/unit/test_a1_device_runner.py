@@ -23,6 +23,7 @@ def write_device_profile(root: Path, *, backend: str = "local") -> Path:
                 "user: root",
                 "ssh_opts: \"-o ConnectTimeout=5\"",
                 "scp_opts: \"-q\"",
+                "sdb_serial: emulator-26101",
                 "arch: x86_64",
                 f"remote_workdir: {workdir}",
                 "perf_path: /usr/bin/perf",
@@ -105,12 +106,57 @@ def test_local_push_and_pull_copy_files(tmp_path: Path) -> None:
     assert pulled.read_text(encoding="utf-8") == "payload\n"
 
 
-def test_sdb_backend_is_reserved_until_a3_p002(tmp_path: Path) -> None:
+def test_sdb_shell_invokes_serialized_device(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_sdb(tmp_path)
+    monkeypatch.setenv("PATH", str(fakebin))
     write_device_profile(tmp_path, backend="sdb")
     runner = DeviceRunner.from_name("host", repo_root=tmp_path)
 
-    with pytest.raises(NotImplementedError, match="reserved for A3"):
-        runner.shell("true", timeout_s=1)
+    result = runner.shell("echo sdb-ok", timeout_s=5)
+
+    assert result.returncode == 0
+    assert result.stdout == "sdb-ok\n"
+    assert "-s emulator-26101 shell echo sdb-ok" in (
+        tmp_path / "sdb.log"
+    ).read_text(encoding="utf-8")
+
+
+def test_sdb_push_and_pull_use_sdb_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_sdb(tmp_path)
+    monkeypatch.setenv("PATH", str(fakebin))
+    write_device_profile(tmp_path, backend="sdb")
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+    source = tmp_path / "source.txt"
+    source.write_text("payload\n", encoding="utf-8")
+
+    runner.push(source, "/tmp/source.txt")
+    runner.pull("/tmp/source.txt", tmp_path / "pulled.txt")
+
+    log = (tmp_path / "sdb.log").read_text(encoding="utf-8")
+    assert f"-s emulator-26101 push {source} /tmp/source.txt" in log
+    assert f"-s emulator-26101 pull /tmp/source.txt {tmp_path / 'pulled.txt'}" in log
+
+
+def test_sdb_failure_reports_remediation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_sdb(tmp_path, fails=True)
+    monkeypatch.setenv("PATH", str(fakebin))
+    write_device_profile(tmp_path, backend="sdb")
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+
+    result = runner.shell("echo sdb-ok", timeout_s=5)
+
+    assert result.returncode == 1
+    assert "sdb target emulator-26101" in result.stderr
+    assert "sdb devices" in result.stderr
 
 
 def test_ssh_shell_invokes_configured_target_and_options(
@@ -213,4 +259,25 @@ def install_fake_ssh_tools(tmp_path: Path, *, scp_fails: bool = False) -> Path:
         encoding="utf-8",
     )
     scp.chmod(0o755)
+    return fakebin
+
+
+def install_fake_sdb(tmp_path: Path, *, fails: bool = False) -> Path:
+    fakebin = tmp_path / "fakebin-sdb"
+    fakebin.mkdir()
+    sdb = fakebin / "sdb"
+    sdb.write_text(
+        "\n".join(
+            [
+                "#!/bin/bash",
+                f"printf '%s\\n' \"$*\" >> {tmp_path / 'sdb.log'}",
+                "echo 'sdb target offline' >&2" if fails else "true",
+                "exit 1" if fails else "if [[ \"$3\" == shell ]]; then cmd=\"${@:4}\"; eval \"$cmd\"; fi",
+                "exit 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    sdb.chmod(0o755)
     return fakebin

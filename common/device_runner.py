@@ -79,6 +79,8 @@ class DeviceRunner:
         self._trace("shell", "start", command=cmd, timeout_s=timeout_s)
         if self.profile.backend == "ssh":
             return self._ssh_shell(cmd, timeout_s)
+        if self.profile.backend == "sdb":
+            return self._sdb_shell(cmd, timeout_s)
         if self.profile.backend != "local":
             return self._unsupported_backend("shell")
         started = time.monotonic()
@@ -130,6 +132,9 @@ class DeviceRunner:
         if self.profile.backend == "ssh":
             self._ssh_copy("push", Path(local_path), remote_path)
             return
+        if self.profile.backend == "sdb":
+            self._sdb_copy("push", Path(local_path), remote_path)
+            return
         if self.profile.backend != "local":
             self._unsupported_backend("push")
             return
@@ -140,6 +145,9 @@ class DeviceRunner:
         self._trace("pull", "start", remote_path=str(remote_path), local_path=str(local_path))
         if self.profile.backend == "ssh":
             self._ssh_copy("pull", Path(local_path), remote_path)
+            return
+        if self.profile.backend == "sdb":
+            self._sdb_copy("pull", Path(local_path), remote_path)
             return
         if self.profile.backend != "local":
             self._unsupported_backend("pull")
@@ -272,6 +280,36 @@ class DeviceRunner:
     def _remote_spec(self, value: str | Path) -> str:
         return f"{self._ssh_target()}:{value}"
 
+    def _sdb_shell(self, cmd: str, timeout_s: int) -> CompletedRun:
+        argv = [*_sdb_prefix(self.profile), "shell", cmd]
+        return self._run_backend_command(
+            step="shell",
+            argv=argv,
+            timeout_s=timeout_s,
+            command_for_result=cmd,
+            remediation=_sdb_remediation(self.profile),
+        )
+
+    def _sdb_copy(
+        self,
+        direction: str,
+        local_path: Path,
+        remote_path: str | Path,
+    ) -> None:
+        if direction == "push":
+            argv = [*_sdb_prefix(self.profile), "push", str(local_path), str(remote_path)]
+        else:
+            argv = [*_sdb_prefix(self.profile), "pull", str(remote_path), str(local_path)]
+        completed = self._run_backend_command(
+            step=direction,
+            argv=argv,
+            timeout_s=60,
+            command_for_result=" ".join(argv),
+            remediation=_sdb_remediation(self.profile),
+        )
+        if completed.returncode != 0:
+            raise DeviceRunnerError(completed.stderr)
+
     def _trace(self, step: str, event: str, **fields: Any) -> None:
         if self.tracer is not None:
             self.tracer.info(f"device_runner.{step}", event, **fields)
@@ -363,4 +401,20 @@ def _ssh_remediation(profile: DeviceProfile) -> str:
         "For Tizen, use a root image or install/enable openssh-server, run "
         "`systemctl enable sshd && systemctl start sshd`, and add the host public key "
         "to ~/.ssh/authorized_keys. The scripts never run sudo or change target policy."
+    )
+
+
+def _sdb_prefix(profile: DeviceProfile) -> list[str]:
+    if profile.sdb_serial:
+        return ["sdb", "-s", profile.sdb_serial]
+    return ["sdb"]
+
+
+def _sdb_remediation(profile: DeviceProfile) -> str:
+    serial = profile.sdb_serial or "<default-device>"
+    return (
+        f"Remediation for sdb target {serial}: verify Tizen Studio sdb is installed, "
+        "`sdb devices` shows the target as connected, the target has developer/root "
+        "access enabled, and the serial in the device profile is correct. The scripts "
+        "never run sudo or change target policy."
     )
