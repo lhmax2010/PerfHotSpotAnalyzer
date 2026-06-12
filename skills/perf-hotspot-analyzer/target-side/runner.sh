@@ -11,6 +11,7 @@ CALLGRAPH_MODE="$7"
 DURATION_S="$8"
 REPEAT="$9"
 WARMUP="${10}"
+TARGET_HAS_STACKCOLLAPSE="${11:-false}"
 
 mkdir -p "${OUTPUT_DIR}"
 EXEC_LOG="${OUTPUT_DIR}/exec.log"
@@ -37,12 +38,25 @@ for ((i = 0; i < WARMUP; i++)); do
   fi
 done
 
+if [[ "${TARGET_KIND}" == "service" ]]; then
+  service_pid="$(systemctl show -p MainPID --value "${TARGET_VALUE}" 2>> "${EXEC_LOG}" || printf 0)"
+  if [[ -z "${service_pid}" || "${service_pid}" == "0" ]]; then
+    service_pid="$(pidof "${TARGET_VALUE}" 2>> "${EXEC_LOG}" | awk '{print $1}' || true)"
+  fi
+  if [[ -z "${service_pid}" || "${service_pid}" == "0" ]]; then
+    printf 'unable to resolve service pid for %s\n' "${TARGET_VALUE}" >&2
+    exit 2
+  fi
+  TARGET_KIND="pid"
+  TARGET_VALUE="${service_pid}"
+fi
+
 if [[ "${TARGET_KIND}" == "pid" ]]; then
   record_args+=("-p" "${TARGET_VALUE}" "--" "sleep" "${DURATION_S}")
 elif [[ "${TARGET_KIND}" == "command" ]]; then
   record_args+=("--" "bash" "-lc" "${TARGET_VALUE}")
 else
-  printf 'unsupported target kind for A1 local runner: %s\n' "${TARGET_KIND}" >&2
+  printf 'unsupported target kind for perf runner: %s\n' "${TARGET_KIND}" >&2
   exit 2
 fi
 
@@ -59,6 +73,18 @@ log_cmd "${report_cmd[*]} > perf-report.txt"
 buildid_cmd=("${PERF_PATH}" buildid-list "-i" "${OUTPUT_DIR}/perf.data")
 log_cmd "${buildid_cmd[*]} > dso-list.txt"
 "${buildid_cmd[@]}" > "${OUTPUT_DIR}/dso-list.txt" 2>> "${EXEC_LOG}" || true
+if [[ ! -s "${OUTPUT_DIR}/dso-list.txt" ]]; then
+  log_cmd "fallback readelf -n over mapped DSOs > dso-list.txt"
+  maps_source="/proc/self/maps"
+  if [[ "${TARGET_KIND}" == "pid" && -r "/proc/${TARGET_VALUE}/maps" ]]; then
+    maps_source="/proc/${TARGET_VALUE}/maps"
+  fi
+  awk '{print $6}' "${maps_source}" 2>/dev/null | sort -u | while read -r dso; do
+    [[ -r "${dso}" ]] || continue
+    build_id="$(readelf -n "${dso}" 2>/dev/null | awk '/Build ID:/ {print $3; exit}')"
+    [[ -n "${build_id}" ]] && printf '%s %s\n' "${build_id}" "${dso}"
+  done > "${OUTPUT_DIR}/dso-list.txt" || true
+fi
 
 if [[ -r /proc/kallsyms ]]; then
   cp /proc/kallsyms "${OUTPUT_DIR}/kallsyms" 2>> "${EXEC_LOG}" || : > "${OUTPUT_DIR}/kallsyms"
@@ -93,5 +119,10 @@ cat > "${OUTPUT_DIR}/run-context.json" <<JSON
 }
 JSON
 
-: > "${OUTPUT_DIR}/out.folded"
+if [[ "${TARGET_HAS_STACKCOLLAPSE}" == "true" ]] && command -v stackcollapse-perf.pl >/dev/null 2>&1; then
+  log_cmd "stackcollapse-perf.pl < perf-script.txt > out.folded"
+  stackcollapse-perf.pl "${OUTPUT_DIR}/perf-script.txt" > "${OUTPUT_DIR}/out.folded" 2>> "${EXEC_LOG}" || : > "${OUTPUT_DIR}/out.folded"
+else
+  : > "${OUTPUT_DIR}/out.folded"
+fi
 log_cmd "capture complete"

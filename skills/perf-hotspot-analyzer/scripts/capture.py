@@ -68,14 +68,11 @@ def run_capture(
     repo_root = Path(repo_root)
     job = load_capture_job(job_path)
     profile = load_device_profile(str(job["device"]), repo_root=repo_root)
-    if profile.backend != "local":
-        raise NotImplementedError("A1 capture implements only backend=local")
 
     requested_callgraph = str(job.get("perf", {}).get("callgraph", "auto"))
-    preflight_result = preflight.run_preflight(
-        perf_path=profile.perf_path,
+    preflight_result = run_capture_preflight(
+        profile=profile,
         requested_callgraph=requested_callgraph,
-        arch=profile.arch,
         tracer=tracer,
     )
     callgraph_mode = preflight_result["callgraph"]["mode"]
@@ -100,7 +97,10 @@ def run_capture(
     run = runner.shell(command, timeout_s=_capture_timeout(job))
     if run.returncode != 0:
         raise RuntimeError(f"capture runner failed with {run.returncode}: {run.stderr}")
-    runner.pull(remote_bundle_dir, local_bundle_dir)
+    if profile.backend == "local":
+        runner.pull(remote_bundle_dir, local_bundle_dir)
+    else:
+        runner.pull(remote_bundle_dir, output_root)
 
     if not keep_remote:
         runner.shell(f"rm -rf {shlex.quote(str(remote_bundle_dir))}", timeout_s=10)
@@ -157,8 +157,59 @@ def build_runner_command(
         str(perf.get("duration_s", 30)),
         str(perf.get("repeat", 1)),
         str(perf.get("warmup", 0)),
+        "true" if profile.target_has_stackcollapse else "false",
     ]
     return " ".join(shlex.quote(arg) for arg in args)
+
+
+def run_capture_preflight(
+    *,
+    profile: DeviceProfile,
+    requested_callgraph: str,
+    tracer: TraceLogger | None = None,
+) -> dict[str, Any]:
+    if profile.backend == "local":
+        return preflight.run_preflight(
+            perf_path=profile.perf_path,
+            requested_callgraph=requested_callgraph,
+            arch=profile.arch,
+            tracer=tracer,
+        )
+    callgraph = preflight.choose_callgraph_mode(
+        requested=requested_callgraph,
+        perf_available=True,
+        arch=profile.arch,
+    )
+    result = {
+        "schema_version": "preflight/v1",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "perf": {
+            "path": profile.perf_path,
+            "available": True,
+            "version": "target-side",
+            "error": None,
+        },
+        "kernel": {
+            "perf_event_paranoid": None,
+            "cap_perfmon": False,
+            "euid": None,
+            "permissions_ok": None,
+            "permission_reason": "checked on target by runner.sh",
+            "remediation": [
+                "If capture fails, verify target perf permissions, CAP_PERFMON, and perf_event_paranoid.",
+            ],
+        },
+        "callgraph": callgraph,
+    }
+    if tracer is not None:
+        tracer.info(
+            "preflight",
+            "remote_callgraph_chosen",
+            backend=profile.backend,
+            mode=callgraph["mode"],
+            reason=callgraph["reason"],
+        )
+    return result
 
 
 def build_manifest(

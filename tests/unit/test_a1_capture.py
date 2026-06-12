@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sys
 from pathlib import Path
 
-from common.device_runner import DeviceProfile
+from common.device_runner import CompletedRun, DeviceProfile
 from common.schema_validate import CAPTURE_BUNDLE, validate_document
 
 
@@ -151,3 +152,107 @@ def test_build_manifest_validates_capture_bundle_schema(tmp_path: Path) -> None:
     assert manifest["backend"] == "local"
     assert manifest["artifacts"]["proc_maps"] == "proc-4242-maps"
     assert manifest["perf"]["callgraph_mode"] == "fp"
+
+
+def test_remote_capture_uses_device_runner_and_host_folded_generation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    capture = load_capture_module()
+    repo = tmp_path / "repo"
+    device_dir = repo / ".perf-skill" / "devices"
+    device_dir.mkdir(parents=True)
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    (device_dir / "board.yaml").write_text(
+        "\n".join(
+            [
+                "name: board",
+                "backend: ssh",
+                "host: 127.0.0.1",
+                "user: root",
+                f"remote_workdir: {remote}",
+                "perf_path: /usr/bin/perf",
+                "arch: aarch64",
+                "target_has_stackcollapse: false",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    job = tmp_path / "capture-job.yaml"
+    job.write_text(
+        """
+        device: board
+        target:
+          kind: pid
+          pid: 4242
+        perf:
+          events: [cycles]
+          freq_hz: 999
+          callgraph: auto
+          duration_s: 1
+          repeat: 1
+          warmup: 0
+        output:
+          bundle_name: tizen-bundle
+        """,
+        encoding="utf-8",
+    )
+
+    class FakeRunner:
+        def __init__(self, profile, tracer=None):
+            self.profile = profile
+
+        def shell(self, cmd, timeout_s):
+            if "runner.sh" in cmd:
+                bundle = self.profile.remote_workdir / "tizen-bundle"
+                bundle.mkdir(parents=True, exist_ok=True)
+                write_remote_bundle_artifacts(bundle)
+            return CompletedRun(cmd, 0, "", "", 1)
+
+        def push(self, local_path, remote_path):
+            Path(remote_path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(local_path, remote_path)
+
+        def pull(self, remote_path, local_path):
+            destination = Path(local_path) / Path(remote_path).name
+            shutil.copytree(remote_path, destination, dirs_exist_ok=True)
+
+    monkeypatch.setattr(capture, "DeviceRunner", FakeRunner)
+
+    result = capture.run_capture(
+        job_path=job,
+        output_dir=tmp_path / "out",
+        repo_root=repo,
+    )
+
+    assert result.manifest["backend"] == "ssh"
+    assert result.manifest["device"]["arch"] == "aarch64"
+    assert result.manifest["perf"]["callgraph_mode"] == "dwarf"
+    assert (result.bundle_dir / "out.folded").read_text(encoding="utf-8").strip()
+    validate_document(result.manifest, document_type=CAPTURE_BUNDLE)
+
+
+def write_remote_bundle_artifacts(bundle: Path) -> None:
+    (bundle / "perf.data").write_text("fixture\n", encoding="utf-8")
+    (bundle / "perf-script.txt").write_text(
+        "demo 4242/4242 1.0: 1 hot_symbol (/usr/lib/libdemo.so)\n",
+        encoding="utf-8",
+    )
+    (bundle / "out.folded").write_text("", encoding="utf-8")
+    (bundle / "perf-report.txt").write_text("hot_symbol\n", encoding="utf-8")
+    (bundle / "kallsyms").write_text("", encoding="utf-8")
+    (bundle / "dso-list.txt").write_text("abcd1234 /usr/lib/libdemo.so\n", encoding="utf-8")
+    (bundle / "proc-4242-maps").write_text("", encoding="utf-8")
+    (bundle / "exec.log").write_text("ok\n", encoding="utf-8")
+    (bundle / "run-context.json").write_text(
+        json.dumps(
+            {
+                "cpu_governor": "performance",
+                "affinity": "0-1",
+                "thermal_state": "unknown",
+            }
+        ),
+        encoding="utf-8",
+    )
