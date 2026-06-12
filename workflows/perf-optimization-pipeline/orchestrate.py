@@ -210,20 +210,30 @@ class PipelineOrchestrator:
 
     def _run_a(self) -> Path:
         a_config = _mapping(self.config.get("a"))
-        bundle_dir = a_config.get("bundle_dir")
-        if bundle_dir:
-            bundle = _resolve_path(bundle_dir, self.repo_root)
-            self._record_stage(
-                "a_capture",
-                {
-                    "status": "success",
-                    "skipped": True,
-                    "reason": "pre-captured bundle provided by config",
-                    "outputs": {"bundle_dir": str(bundle)},
-                },
-            )
+        resumed_capture = self._completed_output("a_capture", "bundle_dir")
+        if resumed_capture is not None:
+            self._trace("a_capture", "resume", bundle_dir=str(resumed_capture))
+            bundle = resumed_capture
         else:
-            bundle = self._run_a_capture(a_config)
+            bundle_dir = a_config.get("bundle_dir")
+            if bundle_dir:
+                bundle = _resolve_path(bundle_dir, self.repo_root)
+                self._record_stage(
+                    "a_capture",
+                    {
+                        "status": "success",
+                        "skipped": True,
+                        "reason": "pre-captured bundle provided by config",
+                        "outputs": {"bundle_dir": str(bundle)},
+                    },
+                )
+            else:
+                bundle = self._run_a_capture(a_config)
+
+        resumed_report = self._completed_output("a_report", "performance_findings")
+        if resumed_report is not None:
+            self._trace("a_report", "resume", performance_findings=str(resumed_report))
+            return resumed_report
 
         analysis_path = self._run_a_analyze(a_config, bundle)
         return self._run_a_report(a_config, analysis_path)
@@ -261,6 +271,10 @@ class PipelineOrchestrator:
         return bundle
 
     def _run_a_analyze(self, a_config: Mapping[str, Any], bundle_dir: Path) -> Path:
+        resumed = self._completed_output("a_analyze", "analysis_path")
+        if resumed is not None:
+            self._trace("a_analyze", "resume", analysis_path=str(resumed))
+            return resumed
         stage_dir = self._stage_dir("a_analyze")
         analysis_path = stage_dir / "postprocess.json"
         cmd = [
@@ -294,6 +308,10 @@ class PipelineOrchestrator:
         return analysis_path
 
     def _run_a_report(self, a_config: Mapping[str, Any], analysis_path: Path) -> Path:
+        resumed = self._completed_output("a_report", "performance_findings")
+        if resumed is not None:
+            self._trace("a_report", "resume", performance_findings=str(resumed))
+            return resumed
         stage_dir = self._stage_dir("a_report")
         cmd = [
             sys.executable,
@@ -323,6 +341,10 @@ class PipelineOrchestrator:
         return findings
 
     def _external_b_input(self) -> Path:
+        resumed = self._completed_output("b_input", "performance_findings")
+        if resumed is not None:
+            self._trace("b_input", "resume", performance_findings=str(resumed))
+            return resumed
         b_config = _mapping(self.config.get("b"))
         raw_input = b_config.get("input")
         if not raw_input:
@@ -338,6 +360,10 @@ class PipelineOrchestrator:
         return path
 
     def _run_b(self, input_report: Path) -> Path:
+        resumed = self._completed_output("b_run", "patches")
+        if resumed is not None:
+            self._trace("b_run", "resume", patches=str(resumed))
+            return resumed
         b_config = _mapping(self.config.get("b"))
         stage_dir = self._stage_dir("b_run")
         cmd = [
@@ -385,6 +411,10 @@ class PipelineOrchestrator:
         artifact: Path,
         prompt_text: str,
     ) -> None:
+        existing = _mapping(_mapping(self.state.get("gates")).get(name))
+        if existing.get("status") == "pass":
+            self._trace(name, "resume", mode=existing.get("mode", "unknown"))
+            return
         gates_config = _mapping(self.config.get("gates"))
         if gates_config.get(name) is False:
             decision = "pass"
@@ -414,6 +444,19 @@ class PipelineOrchestrator:
         self._trace(name, decision, mode=mode, artifact=str(artifact), reason=reason)
         if decision != "pass":
             raise PipelineError(f"{title} rejected: {reason}")
+
+    def _completed_output(self, stage: str, output_key: str) -> Path | None:
+        stage_record = _mapping(_mapping(self.state.get("stages")).get(stage))
+        if stage_record.get("status") != "success":
+            return None
+        outputs = _mapping(stage_record.get("outputs"))
+        raw_path = outputs.get(output_key)
+        if not raw_path:
+            return None
+        path = Path(str(raw_path))
+        if path.exists():
+            return path
+        return None
 
     def _run_command(self, stage: str, cmd: list[str]) -> CommandResult:
         timeout_s = _command_timeout(self.config)
