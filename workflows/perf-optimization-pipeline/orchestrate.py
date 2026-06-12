@@ -174,6 +174,10 @@ class PipelineOrchestrator:
                     prompt_text="Gate 2: approve generated patch review package? [Y/n] ",
                 )
 
+            merged_report = self._write_merged_report(
+                performance_findings=performance_findings,
+                patches=patches,
+            )
             self._write_state()
         except Exception as exc:
             exit_status = "failed"
@@ -402,6 +406,96 @@ class PipelineOrchestrator:
             },
         )
         return patches
+
+    def _write_merged_report(
+        self,
+        *,
+        performance_findings: Path | None,
+        patches: Path | None,
+    ) -> Path:
+        report_path = self.run_dir / "merged-report.md"
+        findings_counts = _artifact_counts(performance_findings, "findings")
+        patch_counts = _artifact_counts(patches, "patches")
+        gate_records = _gate_decision_records(self.state)
+        lines = [
+            "# Perf Optimization Pipeline Report",
+            "",
+            "## Review Status",
+            "",
+            f"- Mode: `{self.mode}`",
+            f"- Run ID: `{self.run_id}`",
+            f"- Non-interactive: `{str(self.non_interactive).lower()}`",
+            f"- Findings: {findings_counts['total']}",
+            f"- Patches: {patch_counts['total']}",
+            "",
+            "| Gate | Decision | Mode | Counts | Reason |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        if gate_records:
+            for gate in gate_records:
+                counts = gate.get("counts", {})
+                lines.append(
+                    "| {gate} | {decision} | {mode} | {counts} | {reason} |".format(
+                        gate=gate.get("gate", ""),
+                        decision=gate.get("decision", ""),
+                        mode=gate.get("mode", ""),
+                        counts=json.dumps(counts, sort_keys=True),
+                        reason=str(gate.get("reason", "")).replace("|", "\\|"),
+                    )
+                )
+        else:
+            lines.append("| none | n/a | n/a | {} | no workflow gate in this mode |")
+
+        lines.extend(
+            [
+                "",
+                "## Pending Review Decisions",
+                "",
+            ]
+        )
+        if patch_counts["total"]:
+            lines.append("- Review each generated patch before applying anything outside this run directory.")
+            lines.append("- The workflow did not apply, commit, or push generated patches.")
+        elif self.mode == "a-only":
+            lines.append("- Review findings; no Skill B patch suggestions were requested in A-only mode.")
+        else:
+            lines.append("- No patches were generated.")
+
+        analysis_report = self._stage_output_path("a_report", "analysis_report")
+        patch_report = self._stage_output_path("b_run", "patch_report")
+        lines.extend(
+            [
+                "",
+                "## Artifacts",
+                "",
+                f"- State: `{self.state_path}`",
+                f"- Performance findings: `{performance_findings or ''}`",
+                f"- Suggestion patches: `{patches or ''}`",
+                "",
+                "## Analyzer Report",
+                "",
+            ]
+        )
+        lines.append(_read_report_body(analysis_report, "Analyzer report is not available for this mode."))
+        lines.extend(["", "## Patch Report", ""])
+        lines.append(_read_report_body(patch_report, "Patch report is not available for this mode."))
+        report_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        self._record_stage(
+            "merged_report",
+            {
+                "status": "success",
+                "outputs": {"merged_report": str(report_path)},
+            },
+        )
+        return report_path
+
+    def _stage_output_path(self, stage: str, output_key: str) -> Path | None:
+        stage_record = _mapping(_mapping(self.state.get("stages")).get(stage))
+        raw_path = _mapping(stage_record.get("outputs")).get(output_key)
+        if not raw_path:
+            return None
+        path = Path(str(raw_path))
+        return path if path.exists() else None
 
     def _run_gate(
         self,
@@ -709,6 +803,15 @@ def _gate_decision_records(state: Mapping[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return records
+
+
+def _read_report_body(path: Path | None, fallback: str) -> str:
+    if path is None:
+        return fallback
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return fallback
 
 
 def _decode_timeout_stream(value: bytes | str | None) -> str:
