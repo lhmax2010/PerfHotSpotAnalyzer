@@ -75,6 +75,19 @@ def test_choose_callgraph_auto_falls_back_to_dwarf_on_non_x86() -> None:
     assert result["mode"] == "dwarf"
 
 
+def test_choose_callgraph_auto_prefers_fp_on_armv7l_embedded() -> None:
+    preflight = load_preflight_module()
+
+    result = preflight.choose_callgraph_mode(
+        requested="auto",
+        perf_available=True,
+        arch="armv7l",
+    )
+
+    assert result["mode"] == "fp"
+    assert "frame-pointer" in result["reason"]
+
+
 def test_choose_callgraph_auto_returns_none_without_perf() -> None:
     preflight = load_preflight_module()
 

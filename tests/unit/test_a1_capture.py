@@ -288,6 +288,26 @@ def test_capture_timeout_job_override_wins(tmp_path: Path) -> None:
     assert capture._capture_timeout(job, profile=profile, callgraph_mode="fp") == 123
 
 
+def test_capture_timeout_expands_dwarf_script_budget_on_armv7l(tmp_path: Path) -> None:
+    capture = load_capture_module()
+    profile = DeviceProfile(
+        name="board",
+        backend="ssh",
+        arch="armv7l",
+        path=tmp_path / "board.yaml",
+    )
+    job = {
+        "target": {"kind": "pid", "pid": 4242},
+        "perf": {"duration_s": 10, "repeat": 1, "warmup": 0},
+    }
+
+    fp_timeout = capture._capture_timeout(job, profile=profile, callgraph_mode="fp")
+    dwarf_timeout = capture._capture_timeout(job, profile=profile, callgraph_mode="dwarf")
+
+    assert fp_timeout == 105
+    assert dwarf_timeout == 225
+
+
 def test_runner_logs_perf_record_and_script_timing() -> None:
     script = (
         ROOT / "skills" / "perf-hotspot-analyzer" / "target-side" / "runner.sh"

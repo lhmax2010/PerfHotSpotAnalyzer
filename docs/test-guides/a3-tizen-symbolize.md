@@ -116,13 +116,19 @@ target:
 perf:
   events: [cycles]
   freq_hz: 499
-  callgraph: dwarf
+  callgraph: fp
   duration_s: 10
   repeat: 1
   warmup: 0
 output:
   bundle_name: tizen-a3-live
 ```
+
+On ARMv7/armv7l boards, `callgraph: auto` resolves to `fp` because target-side
+`perf script` over DWARF stacks can be minutes slower for large `perf.data`
+files. Use `callgraph: dwarf` only when frame pointers are unavailable, and set
+`perf_script_timeout_s` or `timeout_s` in the device profile/capture job for
+that run.
 
 Run capture:
 

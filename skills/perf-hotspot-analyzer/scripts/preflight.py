@@ -233,7 +233,7 @@ def _has_capability(raw_hex: str, capability: int) -> bool:
 
 
 def _frame_pointer_preferred(arch: str) -> bool:
-    return arch.lower() in {"x86_64", "amd64", "i386", "i686"}
+    return arch.lower() in {"x86_64", "amd64", "i386", "i686", "armv7", "armv7l", "armv7hl", "armv8l"}
 
 
 def _geteuid() -> int | None:

@@ -456,7 +456,10 @@ def _capture_timeout(
         profile.perf_script_timeout_s if profile is not None else None,
     )
     if script_budget is None:
-        script_budget = int(max(120 if callgraph_mode == "dwarf" else 60, duration * 2))
+        if callgraph_mode == "dwarf" and profile is not None and _is_embedded_arm(profile.arch):
+            script_budget = int(max(180, duration * 4))
+        else:
+            script_budget = int(max(120 if callgraph_mode == "dwarf" else 60, duration * 2))
     return int(max(60, record_budget + script_budget))
 
 
@@ -466,6 +469,10 @@ def _first_int(*values: Any) -> int | None:
             continue
         return int(value)
     return None
+
+
+def _is_embedded_arm(arch: str) -> bool:
+    return arch.lower() in {"armv7", "armv7l", "armv7hl", "armv8l"}
 
 
 def _target_value(target: dict[str, Any]) -> str:
