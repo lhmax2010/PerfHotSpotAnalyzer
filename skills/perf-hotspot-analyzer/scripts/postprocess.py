@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import time
@@ -22,7 +23,30 @@ SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh"}
 SOURCE_SEARCH_TIMEOUT_S = 2.0
 SOURCE_SEARCH_FILE_LIMIT = 800
 SOURCE_INDEX_SCAN_LIMIT = 5000
-_SOURCE_INDEX_CACHE: dict[Path, dict[str, list[tuple[Path, int, str, str]]]] = {}
+SOURCE_DIR_SCAN_LIMIT = 2000
+SKIP_SOURCE_DIR_NAMES = {
+    ".git",
+    ".dev_memory",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "builddir",
+    "cmake-build-debug",
+    "cmake-build-release",
+    "dist",
+    "doc",
+    "docs",
+    "node_modules",
+    "out",
+    "test",
+    "tests",
+    "venv",
+}
+_CTAGS_INDEX_CACHE: dict[Path, dict[str, list[tuple[Path, int, str, str]]]] = {}
+_COMPILE_DB_INDEX_CACHE: dict[Path, dict[str, list[tuple[Path, int, str, str]]]] = {}
 DEFAULT_OWNERSHIP = {
     "owned_build_id_sources": [],
     "owned_paths": [],
@@ -617,33 +641,55 @@ def _lookup_indexed_source_anchor(
     symbol: str,
     root: Path,
 ) -> tuple[Path, int, str, str] | None:
-    matches = _source_symbol_index(root).get(symbol, [])
+    matches = _ctags_symbol_index(root).get(symbol, [])
+    indexed = _unique_index_match(matches)
+    if indexed is not None:
+        return indexed
+
+    matches = _compile_db_symbol_index(root).get(symbol, [])
+    return _unique_index_match(matches)
+
+
+def _unique_index_match(
+    matches: list[tuple[Path, int, str, str]],
+) -> tuple[Path, int, str, str] | None:
     unique_paths = {match[0] for match in matches}
     if len(unique_paths) != 1 or not matches:
         return None
     return matches[0]
 
 
-def _source_symbol_index(root: Path) -> dict[str, list[tuple[Path, int, str, str]]]:
+def _ctags_symbol_index(root: Path) -> dict[str, list[tuple[Path, int, str, str]]]:
     resolved = root.resolve()
-    cached = _SOURCE_INDEX_CACHE.get(resolved)
+    cached = _CTAGS_INDEX_CACHE.get(resolved)
     if cached is not None:
         return cached
 
     index: dict[str, list[tuple[Path, int, str, str]]] = {}
-    _index_from_ctags(root, index)
+    tags = root / "tags"
+    if tags.exists():
+        _index_from_ctags(root, tags, index)
+    _CTAGS_INDEX_CACHE[resolved] = index
+    return index
+
+
+def _compile_db_symbol_index(root: Path) -> dict[str, list[tuple[Path, int, str, str]]]:
+    resolved = root.resolve()
+    cached = _COMPILE_DB_INDEX_CACHE.get(resolved)
+    if cached is not None:
+        return cached
+
+    index: dict[str, list[tuple[Path, int, str, str]]] = {}
     _index_from_compile_commands(root, index)
-    _SOURCE_INDEX_CACHE[resolved] = index
+    _COMPILE_DB_INDEX_CACHE[resolved] = index
     return index
 
 
 def _index_from_ctags(
     root: Path,
+    tags: Path,
     index: dict[str, list[tuple[Path, int, str, str]]],
 ) -> None:
-    tags = root / "tags"
-    if not tags.exists():
-        return
     try:
         lines = tags.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -652,19 +698,48 @@ def _index_from_ctags(
         if not line or line.startswith("!"):
             continue
         parts = line.split("\t")
-        if len(parts) < 2:
+        if len(parts) < 3:
             continue
         symbol = parts[0]
         path = Path(parts[1])
         if not path.is_absolute():
             path = root / path
-        if path.suffix not in SOURCE_SUFFIXES or not path.exists():
+        if path.suffix not in SOURCE_SUFFIXES:
             continue
-        match = _find_symbol_in_file(symbol, path)
-        if match is None:
+        line_number = _ctags_line_number(parts[2], parts[3:])
+        if line_number is None:
             continue
-        line_number, matched_line = match
+        matched_line = _ctags_evidence(parts[2], line_number)
         index.setdefault(symbol, []).append((path, line_number, matched_line, "ctags"))
+
+
+def _ctags_line_number(address: str, extra_fields: Sequence[str]) -> int | None:
+    text = address.removesuffix(';"').strip()
+    if text.isdigit():
+        return int(text)
+    for field in extra_fields:
+        if not field.startswith("line:"):
+            continue
+        try:
+            return int(field.split(":", 1)[1])
+        except ValueError:
+            return None
+    if text.startswith("/") or text.startswith("?"):
+        return 1
+    return None
+
+
+def _ctags_evidence(address: str, line_number: int) -> str:
+    text = address.removesuffix(';"').strip()
+    if text.isdigit():
+        return f"ctags line address: {line_number}"
+    return f"ctags pattern address at line {line_number}: {_shorten(text, 120)}"
+
+
+def _shorten(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[: limit - 3]}..."
 
 
 def _index_from_compile_commands(
@@ -767,37 +842,65 @@ def _bounded_source_search(
         matches.append((path, line_number, matched_line))
         if len({item[0] for item in matches}) > 1:
             break
+    if scanned >= SOURCE_SEARCH_FILE_LIMIT:
+        degraded = True
     return matches, degraded
 
 
 def _candidate_source_files(root: Path, *, dso: str) -> Iterable[Path]:
     tokens = _dso_source_tokens(dso)
-    prioritized: list[Path] = []
-    fallback: list[Path] = []
-    for visited, path in enumerate(_iter_source_files(root), start=1):
-        haystack = str(path).lower()
-        if tokens and any(token in haystack for token in tokens):
-            prioritized.append(path)
-        else:
-            if len(fallback) < SOURCE_SEARCH_FILE_LIMIT:
-                fallback.append(path)
-        if len(prioritized) >= SOURCE_SEARCH_FILE_LIMIT:
-            break
-        if visited >= SOURCE_INDEX_SCAN_LIMIT:
-            break
-    if prioritized:
-        yield from prioritized
+    yielded = 0
+    seen: set[Path] = set()
+    for candidate_root in _candidate_source_roots(root, tokens):
+        for path in _iter_source_files(
+            candidate_root,
+            limit=SOURCE_SEARCH_FILE_LIMIT - yielded,
+        ):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            yield path
+            yielded += 1
+            if yielded >= SOURCE_SEARCH_FILE_LIMIT:
+                return
+    if yielded:
         return
-    yield from fallback
+    yield from _iter_source_files(root, limit=SOURCE_SEARCH_FILE_LIMIT)
+
+
+def _candidate_source_roots(root: Path, tokens: set[str]) -> list[Path]:
+    if not tokens:
+        return []
+    matches: list[Path] = []
+    visited = 0
+    for dirpath, dirnames, _filenames in os.walk(root):
+        dirnames[:] = [
+            dirname for dirname in dirnames if dirname not in SKIP_SOURCE_DIR_NAMES
+        ]
+        path = Path(dirpath)
+        if path == root:
+            continue
+        visited += 1
+        haystack = str(path.relative_to(root)).lower()
+        name = path.name.lower()
+        if any(token == name or token in name or token in haystack for token in tokens):
+            matches.append(path)
+        if len(matches) >= 8 or visited >= SOURCE_DIR_SCAN_LIMIT:
+            break
+    return sorted(matches, key=lambda path: (len(path.parts), str(path)))
 
 
 def _dso_source_tokens(dso: str) -> set[str]:
     name = Path(dso).name.lower()
     if not name:
         return set()
-    name = re.sub(r"\.so(?:\..*)?$", "", name)
-    name = re.sub(r"^lib", "", name)
-    return {token for token in re.split(r"[^a-z0-9]+", name) if len(token) >= 3}
+    stem = re.sub(r"\.so(?:\..*)?$", "", name)
+    without_lib = re.sub(r"^lib", "", stem)
+    tokens = {stem, without_lib}
+    tokens.update(re.split(r"[^a-z0-9]+", stem))
+    tokens.update(re.split(r"[^a-z0-9]+", without_lib))
+    return {token for token in tokens if len(token) >= 3}
 
 
 def anchor_from_frame(
@@ -1052,13 +1155,20 @@ def _actionability_for_hotspot(
     return "informational", "unknown hotspot ownership"
 
 
-def _iter_source_files(root: Path) -> Iterable[Path]:
-    excluded = {".git", ".dev_memory", "__pycache__", ".pytest_cache"}
-    for path in root.rglob("*"):
-        if any(part in excluded for part in path.parts):
-            continue
-        if path.is_file() and path.suffix in SOURCE_SUFFIXES:
+def _iter_source_files(root: Path, *, limit: int | None = None) -> Iterable[Path]:
+    yielded = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            dirname for dirname in dirnames if dirname not in SKIP_SOURCE_DIR_NAMES
+        ]
+        for filename in sorted(filenames):
+            path = Path(dirpath) / filename
+            if path.suffix not in SOURCE_SUFFIXES:
+                continue
             yield path
+            yielded += 1
+            if limit is not None and yielded >= limit:
+                return
 
 
 def _looks_like_function_definition(line: str, symbol: str) -> bool:

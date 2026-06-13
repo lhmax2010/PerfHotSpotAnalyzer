@@ -348,3 +348,95 @@ def test_find_source_anchor_uses_compile_db_index_for_large_source_tree(tmp_path
     assert anchor["file"] == "ffmpeg/libavcodec/decode.c"
     assert anchor["resolution_method"] == "compile-db"
     assert anchor["anchor_confidence"] == 0.75
+
+
+def test_find_source_anchor_uses_large_ctags_without_reopening_sources(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    postprocess = load_postprocess_module()
+    tags_lines = ["!_TAG_FILE_FORMAT\t2\t/extended format/"]
+    tags_lines.extend(
+        f"unused_symbol_{idx}\tlibavcodec/unused_{idx}.c\t{idx + 1};\"\tf"
+        for idx in range(8000)
+    )
+    tags_lines.append("ffmpeg_decode_hot_path\tlibavcodec/decode.c\t123;\"\tf")
+    (tmp_path / "tags").write_text("\n".join(tags_lines) + "\n", encoding="utf-8")
+
+    def forbidden_source_scan(symbol: str, path: Path):
+        raise AssertionError(f"ctags lookup reopened source file {path} for {symbol}")
+
+    monkeypatch.setattr(postprocess, "_find_symbol_in_file", forbidden_source_scan)
+
+    started = time.monotonic()
+    anchor = postprocess.find_source_anchor(
+        "ffmpeg_decode_hot_path",
+        tmp_path,
+        dso="/usr/lib/libavcodec.so",
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0
+    assert anchor is not None
+    assert anchor["file"] == "libavcodec/decode.c"
+    assert anchor["line_start"] == 123
+    assert anchor["resolution_method"] == "ctags"
+
+
+def test_find_source_anchor_uses_ctags_pattern_line_field(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    (tmp_path / "tags").write_text(
+        'pattern_symbol\tlibavcodec/pattern.c\t/^int pattern_symbol(int n)$/;"\tf\tline:77\n',
+        encoding="utf-8",
+    )
+
+    anchor = postprocess.find_source_anchor(
+        "pattern_symbol",
+        tmp_path,
+        dso="/usr/lib/libavcodec.so",
+    )
+
+    assert anchor is not None
+    assert anchor["file"] == "libavcodec/pattern.c"
+    assert anchor["line_start"] == 77
+    assert "pattern address" in anchor["evidence"]
+
+
+def test_find_source_anchor_fallback_prefers_dso_directory_on_large_tree(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    source_root = tmp_path / "ffmpeg"
+    (source_root / "libavcodec").mkdir(parents=True)
+    (source_root / "libavformat").mkdir()
+    (source_root / "doc").mkdir()
+    (source_root / "tests").mkdir()
+    for idx in range(1200):
+        (source_root / "libavformat" / f"format_{idx}.c").write_text(
+            f"int format_helper_{idx}(int n) {{ return n; }}\n",
+            encoding="utf-8",
+        )
+    for idx in range(300):
+        (source_root / "doc" / f"doc_{idx}.c").write_text(
+            f"int doc_helper_{idx}(int n) {{ return n; }}\n",
+            encoding="utf-8",
+        )
+        (source_root / "tests" / f"test_{idx}.c").write_text(
+            f"int test_helper_{idx}(int n) {{ return n; }}\n",
+            encoding="utf-8",
+        )
+    (source_root / "libavcodec" / "000_decode.c").write_text(
+        "int ffmpeg_decode_hot_path(int n) { return n * 2; }\n",
+        encoding="utf-8",
+    )
+
+    started = time.monotonic()
+    anchor = postprocess.find_source_anchor(
+        "ffmpeg_decode_hot_path",
+        tmp_path,
+        dso="/usr/lib/libavcodec.so",
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0
+    assert anchor is not None
+    assert anchor["file"] == "ffmpeg/libavcodec/000_decode.c"
+    assert anchor["line_start"] == 1
