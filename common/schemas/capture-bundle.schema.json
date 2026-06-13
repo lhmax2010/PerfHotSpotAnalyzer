@@ -29,7 +29,7 @@
       "properties": {
         "name": {"type": "string"},
         "host": {"type": "string"},
-        "arch": {"enum": ["armv7", "aarch64", "x86_64"]},
+        "arch": {"enum": ["armv7", "armv7l", "armv7hl", "armv8l", "aarch64", "i686", "x86_64"]},
         "tizen_version": {"type": "string"}
       }
     },

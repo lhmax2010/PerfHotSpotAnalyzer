@@ -242,7 +242,7 @@ def build_tizen_context(
 ) -> dict[str, Any] | None:
     device = manifest.get("device", {})
     arch = device.get("arch") if isinstance(device, dict) else None
-    if arch not in {"armv7", "aarch64"} and manifest.get("backend") not in {"ssh", "sdb"}:
+    if arch not in {"armv7", "armv7l", "armv7hl", "armv8l", "aarch64"} and manifest.get("backend") not in {"ssh", "sdb"}:
         return None
     debuginfo_roots = [
         resolve_host_path(root, repo_root)

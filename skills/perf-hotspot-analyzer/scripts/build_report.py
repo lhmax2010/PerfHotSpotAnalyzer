@@ -307,7 +307,7 @@ def _target_from_analysis(analysis: Mapping[str, Any], repo_root: Path) -> dict[
 def _arch_from_analysis(analysis: Mapping[str, Any]) -> str:
     bundle_manifest = analysis.get("device", {})
     arch = bundle_manifest.get("arch") if isinstance(bundle_manifest, Mapping) else None
-    if arch in {"armv7", "aarch64", "x86_64"}:
+    if arch in {"armv7", "armv7l", "armv7hl", "armv8l", "aarch64", "i686", "x86_64"}:
         return str(arch)
     return "x86_64"
 

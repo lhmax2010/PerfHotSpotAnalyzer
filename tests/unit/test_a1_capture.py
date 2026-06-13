@@ -154,6 +154,48 @@ def test_build_manifest_validates_capture_bundle_schema(tmp_path: Path) -> None:
     assert manifest["perf"]["callgraph_mode"] == "fp"
 
 
+def test_capture_bundle_schema_accepts_armv7l_arch(tmp_path: Path) -> None:
+    capture = load_capture_module()
+    for name in [
+        "perf.data",
+        "perf-script.txt",
+        "out.folded",
+        "perf-report.txt",
+        "kallsyms",
+        "dso-list.txt",
+        "exec.log",
+        "proc-4242-maps",
+    ]:
+        (tmp_path / name).write_text("fixture\n", encoding="utf-8")
+    (tmp_path / "run-context.json").write_text(
+        json.dumps({"cpu_governor": "performance", "affinity": "0", "thermal_state": "unknown"}),
+        encoding="utf-8",
+    )
+    profile = DeviceProfile(
+        name="board",
+        backend="ssh",
+        arch="armv7l",
+        path=tmp_path / "board.yaml",
+        remote_workdir=Path("/root/perf-skill"),
+    )
+    job = {
+        "target": {"kind": "pid", "pid": 4242, "commit": "abc123"},
+        "perf": {"events": ["cycles"], "freq_hz": 499, "duration_s": 2, "repeat": 1, "warmup": 0},
+    }
+
+    manifest = capture.build_manifest(
+        bundle_dir=tmp_path,
+        job_path=tmp_path / "capture-job.yaml",
+        job=job,
+        profile=profile,
+        preflight_result={"callgraph": {"mode": "fp", "reason": "test"}, "perf": {"available": True}},
+        elapsed_ms=123,
+    )
+
+    validate_document(manifest, document_type=CAPTURE_BUNDLE)
+    assert manifest["device"]["arch"] == "armv7l"
+
+
 def test_remote_capture_uses_device_runner_and_host_folded_generation(
     tmp_path: Path,
     monkeypatch,

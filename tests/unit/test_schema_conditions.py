@@ -178,6 +178,14 @@ def assert_invalid(document: dict, document_type: str) -> None:
     assert collect_validation_issues(document, document_type=document_type)
 
 
+def test_performance_schema_accepts_armv7l_arch() -> None:
+    document = base_performance("function-hotspot")
+    document["target"]["platform"]["os"] = "tizen"
+    document["target"]["platform"]["arch"] = "armv7l"
+
+    assert_valid(document, PERFORMANCE_FINDINGS)
+
+
 def test_per_kind_positive_examples_are_valid() -> None:
     for kind in [
         "function-hotspot",

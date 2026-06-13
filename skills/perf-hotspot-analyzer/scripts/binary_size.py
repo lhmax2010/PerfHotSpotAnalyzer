@@ -569,8 +569,12 @@ def _normalized_arch() -> str:
     machine = platform.machine().lower()
     if machine in {"x86_64", "amd64"}:
         return "x86_64"
+    if machine in {"i386", "i686"}:
+        return "i686"
     if machine in {"aarch64", "arm64"}:
         return "aarch64"
+    if machine in {"armv7l", "armv7hl", "armv8l"}:
+        return machine
     if machine.startswith("arm"):
         return "armv7"
     return "x86_64"

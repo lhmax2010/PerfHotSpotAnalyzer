@@ -130,6 +130,20 @@ def test_build_performance_findings_validates_schema(tmp_path: Path) -> None:
     assert document["findings"][1]["attribution_anchor"]["resolution_method"] == "caller-attribution"
 
 
+def test_build_performance_findings_preserves_armv7l_arch(tmp_path: Path) -> None:
+    build_report = load_build_report_module()
+    analysis = sample_analysis(tmp_path)
+    analysis["device"] = {"arch": "armv7l"}
+
+    document = build_report.build_performance_findings(
+        analysis,
+        repo_root=tmp_path,
+    )
+
+    validate_document(document, document_type=PERFORMANCE_FINDINGS)
+    assert document["target"]["platform"]["arch"] == "armv7l"
+
+
 def test_build_report_writes_json_markdown_and_run_report(tmp_path: Path) -> None:
     build_report = load_build_report_module()
     analysis_path = tmp_path / "postprocess.json"
