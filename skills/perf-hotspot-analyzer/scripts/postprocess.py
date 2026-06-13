@@ -19,6 +19,10 @@ from common.tracing import TraceLogger, start_trace
 
 
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hh"}
+SOURCE_SEARCH_TIMEOUT_S = 2.0
+SOURCE_SEARCH_FILE_LIMIT = 800
+SOURCE_INDEX_SCAN_LIMIT = 5000
+_SOURCE_INDEX_CACHE: dict[Path, dict[str, list[tuple[Path, int, str, str]]]] = {}
 DEFAULT_OWNERSHIP = {
     "owned_build_id_sources": [],
     "owned_paths": [],
@@ -543,25 +547,55 @@ def find_source_anchor(
     root = Path(repo_root)
     if not root.exists():
         return None
-    pattern = re.compile(rf"\b{re.escape(symbol)}\s*\(")
-    matches: list[tuple[Path, int, str]] = []
-    for path in _iter_source_files(root):
-        try:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        for line_number, line in enumerate(lines, start=1):
-            if not pattern.search(line):
-                continue
-            stripped = line.strip()
-            if stripped.startswith("//") or stripped.startswith("*"):
-                continue
-            if not _looks_like_function_definition(stripped, symbol):
-                continue
-            matches.append((path, line_number, stripped))
+
+    indexed = _lookup_indexed_source_anchor(symbol, root)
+    if indexed is not None:
+        path, line_number, matched_line, method = indexed
+        return _source_anchor_dict(
+            symbol,
+            path,
+            root,
+            line_number,
+            matched_line,
+            dso=dso,
+            resolution_method=method,
+            confidence=confidence,
+            evidence=evidence,
+        )
+
+    matches, degraded = _bounded_source_search(symbol, root, dso=dso)
     if len(matches) != 1:
         return None
     path, line_number, matched_line = matches[0]
+    bounded_confidence = min(confidence, 0.55) if degraded else confidence
+    bounded_evidence = evidence or f"bounded source search: {matched_line}"
+    if degraded:
+        bounded_evidence = f"{bounded_evidence}; search limit reached"
+    return _source_anchor_dict(
+        symbol,
+        path,
+        root,
+        line_number,
+        matched_line,
+        dso=dso,
+        resolution_method=resolution_method,
+        confidence=bounded_confidence,
+        evidence=bounded_evidence,
+    )
+
+
+def _source_anchor_dict(
+    symbol: str,
+    path: Path,
+    root: Path,
+    line_number: int,
+    matched_line: str,
+    *,
+    dso: str,
+    resolution_method: str,
+    confidence: float,
+    evidence: str | None,
+) -> dict[str, Any]:
     try:
         file_value = str(path.relative_to(root))
     except ValueError:
@@ -577,6 +611,193 @@ def find_source_anchor(
         "resolution_method": resolution_method,
         "evidence": evidence or f"unique source match: {matched_line}",
     }
+
+
+def _lookup_indexed_source_anchor(
+    symbol: str,
+    root: Path,
+) -> tuple[Path, int, str, str] | None:
+    matches = _source_symbol_index(root).get(symbol, [])
+    unique_paths = {match[0] for match in matches}
+    if len(unique_paths) != 1 or not matches:
+        return None
+    return matches[0]
+
+
+def _source_symbol_index(root: Path) -> dict[str, list[tuple[Path, int, str, str]]]:
+    resolved = root.resolve()
+    cached = _SOURCE_INDEX_CACHE.get(resolved)
+    if cached is not None:
+        return cached
+
+    index: dict[str, list[tuple[Path, int, str, str]]] = {}
+    _index_from_ctags(root, index)
+    _index_from_compile_commands(root, index)
+    _SOURCE_INDEX_CACHE[resolved] = index
+    return index
+
+
+def _index_from_ctags(
+    root: Path,
+    index: dict[str, list[tuple[Path, int, str, str]]],
+) -> None:
+    tags = root / "tags"
+    if not tags.exists():
+        return
+    try:
+        lines = tags.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        if not line or line.startswith("!"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        symbol = parts[0]
+        path = Path(parts[1])
+        if not path.is_absolute():
+            path = root / path
+        if path.suffix not in SOURCE_SUFFIXES or not path.exists():
+            continue
+        match = _find_symbol_in_file(symbol, path)
+        if match is None:
+            continue
+        line_number, matched_line = match
+        index.setdefault(symbol, []).append((path, line_number, matched_line, "ctags"))
+
+
+def _index_from_compile_commands(
+    root: Path,
+    index: dict[str, list[tuple[Path, int, str, str]]],
+) -> None:
+    compile_db = root / "compile_commands.json"
+    if not compile_db.exists():
+        return
+    try:
+        entries = json.loads(compile_db.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(entries, list):
+        return
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        raw_file = entry.get("file")
+        if not isinstance(raw_file, str):
+            continue
+        directory = Path(str(entry.get("directory") or root))
+        path = Path(raw_file)
+        if not path.is_absolute():
+            path = directory / path
+        path = path.resolve()
+        if path in seen or path.suffix not in SOURCE_SUFFIXES or not path.exists():
+            continue
+        seen.add(path)
+        paths.append(path)
+        if len(paths) >= SOURCE_INDEX_SCAN_LIMIT:
+            break
+    for path in paths:
+        _scan_source_file_for_index(path, index, method="compile-db")
+
+
+def _scan_source_file_for_index(
+    path: Path,
+    index: dict[str, list[tuple[Path, int, str, str]]],
+    *,
+    method: str,
+) -> None:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    for line_number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//") or stripped.startswith("*"):
+            continue
+        for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", stripped):
+            symbol = match.group(1)
+            if not _looks_like_function_definition(stripped, symbol):
+                continue
+            index.setdefault(symbol, []).append((path, line_number, stripped, method))
+
+
+def _find_symbol_in_file(symbol: str, path: Path) -> tuple[int, str] | None:
+    pattern = re.compile(rf"\b{re.escape(symbol)}\s*\(")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line_number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not pattern.search(line):
+            continue
+        if stripped.startswith("//") or stripped.startswith("*"):
+            continue
+        if not _looks_like_function_definition(stripped, symbol):
+            continue
+        return line_number, stripped
+    return None
+
+
+def _bounded_source_search(
+    symbol: str,
+    root: Path,
+    *,
+    dso: str,
+) -> tuple[list[tuple[Path, int, str]], bool]:
+    matches: list[tuple[Path, int, str]] = []
+    started = time.monotonic()
+    scanned = 0
+    degraded = False
+    for path in _candidate_source_files(root, dso=dso):
+        if scanned >= SOURCE_SEARCH_FILE_LIMIT:
+            degraded = True
+            break
+        if time.monotonic() - started > SOURCE_SEARCH_TIMEOUT_S:
+            degraded = True
+            break
+        scanned += 1
+        match = _find_symbol_in_file(symbol, path)
+        if match is None:
+            continue
+        line_number, matched_line = match
+        matches.append((path, line_number, matched_line))
+        if len({item[0] for item in matches}) > 1:
+            break
+    return matches, degraded
+
+
+def _candidate_source_files(root: Path, *, dso: str) -> Iterable[Path]:
+    tokens = _dso_source_tokens(dso)
+    prioritized: list[Path] = []
+    fallback: list[Path] = []
+    for visited, path in enumerate(_iter_source_files(root), start=1):
+        haystack = str(path).lower()
+        if tokens and any(token in haystack for token in tokens):
+            prioritized.append(path)
+        else:
+            if len(fallback) < SOURCE_SEARCH_FILE_LIMIT:
+                fallback.append(path)
+        if len(prioritized) >= SOURCE_SEARCH_FILE_LIMIT:
+            break
+        if visited >= SOURCE_INDEX_SCAN_LIMIT:
+            break
+    if prioritized:
+        yield from prioritized
+        return
+    yield from fallback
+
+
+def _dso_source_tokens(dso: str) -> set[str]:
+    name = Path(dso).name.lower()
+    if not name:
+        return set()
+    name = re.sub(r"\.so(?:\..*)?$", "", name)
+    name = re.sub(r"^lib", "", name)
+    return {token for token in re.split(r"[^a-z0-9]+", name) if len(token) >= 3}
 
 
 def anchor_from_frame(

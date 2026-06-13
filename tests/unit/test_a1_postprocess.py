@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 
 
@@ -304,3 +305,46 @@ def test_parse_dso_build_ids_maps_paths(tmp_path: Path) -> None:
         "/tmp/x86-hotspot/slow-loop": "1111aaaa",
         "/usr/lib64/libgobject-2.0.so.0": "2222bbbb",
     }
+
+
+def test_find_source_anchor_uses_compile_db_index_for_large_source_tree(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    source_root = tmp_path / "ffmpeg"
+    source_root.mkdir()
+    for idx in range(450):
+        (source_root / f"unused_{idx}.c").write_text(
+            f"int unused_helper_{idx}(int n) {{ return n + {idx}; }}\n",
+            encoding="utf-8",
+        )
+    target = source_root / "libavcodec" / "decode.c"
+    target.parent.mkdir()
+    target.write_text(
+        "int ffmpeg_decode_hot_path(int n) { return n * 2; }\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": str(target.parent),
+                    "command": "cc -c decode.c",
+                    "file": str(target),
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    started = time.monotonic()
+    anchor = postprocess.find_source_anchor(
+        "ffmpeg_decode_hot_path",
+        tmp_path,
+        dso="/usr/lib/libavcodec.so",
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert anchor is not None
+    assert anchor["file"] == "ffmpeg/libavcodec/decode.c"
+    assert anchor["resolution_method"] == "compile-db"
+    assert anchor["anchor_confidence"] == 0.75
