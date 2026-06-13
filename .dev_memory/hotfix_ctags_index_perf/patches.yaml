@@ -1,0 +1,9 @@
+patches:
+  - id: p001
+    title: "Make ctags anchor lookup source-free"
+    commit: "8b3d2cb"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/postprocess.py"
+      - "tests/unit/test_a1_postprocess.py"
+    rationale: "Prevent large tags files from triggering per-symbol source file opens and make fallback search bounded."
+    test_commit: "8b3d2cb"
