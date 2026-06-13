@@ -40,6 +40,11 @@ class DeviceProfile:
     remote_workdir: Path = Path(".")
     perf_path: str = "perf"
     needs_sudo: bool = False
+    shell_timeout_s: int = 10
+    copy_timeout_s: int = 60
+    capture_timeout_s: int | None = None
+    command_timeout_s: int = 300
+    perf_script_timeout_s: int | None = None
     sysroot: str | None = None
     debuginfo_roots: list[str] = field(default_factory=list)
     target_has_stackcollapse: bool = False
@@ -281,7 +286,7 @@ class DeviceRunner:
         completed = self._run_backend_command(
             step=direction,
             argv=argv,
-            timeout_s=60,
+            timeout_s=self.profile.copy_timeout_s,
             command_for_result=" ".join(argv),
             remediation=_ssh_remediation(self.profile),
         )
@@ -379,7 +384,7 @@ class DeviceRunner:
         completed = self._run_backend_command(
             step=direction,
             argv=argv,
-            timeout_s=60,
+            timeout_s=self.profile.copy_timeout_s,
             command_for_result=" ".join(argv),
             remediation=_sdb_remediation(self.profile),
         )
@@ -416,6 +421,11 @@ def load_device_profile(name: str, *, repo_root: str | Path = ".") -> DeviceProf
         remote_workdir=remote_workdir,
         perf_path=str(raw.get("perf_path") or "perf"),
         needs_sudo=bool(raw.get("needs_sudo", False)),
+        shell_timeout_s=_optional_int(raw.get("shell_timeout_s"), default=10),
+        copy_timeout_s=_optional_int(raw.get("copy_timeout_s"), default=60),
+        capture_timeout_s=_optional_int(raw.get("capture_timeout_s")),
+        command_timeout_s=_optional_int(raw.get("command_timeout_s"), default=300),
+        perf_script_timeout_s=_optional_int(raw.get("perf_script_timeout_s")),
         sysroot=_optional_str(raw.get("sysroot")),
         debuginfo_roots=[str(item) for item in raw.get("debuginfo_roots", [])],
         target_has_stackcollapse=bool(raw.get("target_has_stackcollapse", False)),
@@ -445,6 +455,12 @@ def _optional_str(value: Any) -> str | None:
         return None
     text = str(value)
     return text or None
+
+
+def _optional_int(value: Any, *, default: int | None = None) -> int | None:
+    if value is None or value == "":
+        return default
+    return int(value)
 
 
 def _decode_timeout_stream(value: Any) -> str:

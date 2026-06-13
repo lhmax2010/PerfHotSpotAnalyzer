@@ -83,7 +83,10 @@ def run_capture(
     local_bundle_dir.mkdir(parents=True, exist_ok=True)
 
     runner = DeviceRunner(profile, tracer=tracer)
-    runner.shell(f"mkdir -p {shlex.quote(str(remote_bundle_dir))}", timeout_s=10)
+    runner.shell(
+        f"mkdir -p {shlex.quote(str(remote_bundle_dir))}",
+        timeout_s=profile.shell_timeout_s,
+    )
     runner.push(job_path, remote_bundle_dir / "capture-job.yaml")
 
     runner_args = build_runner_args(
@@ -96,7 +99,7 @@ def run_capture(
     run = runner.shell_script(
         _runner_script_path().read_text(encoding="utf-8"),
         runner_args,
-        timeout_s=_capture_timeout(job),
+        timeout_s=_capture_timeout(job, profile=profile, callgraph_mode=callgraph_mode),
     )
     if run.returncode != 0:
         raise RuntimeError(f"capture runner failed with {run.returncode}: {run.stderr}")
@@ -106,7 +109,10 @@ def run_capture(
         runner.pull(remote_bundle_dir, output_root)
 
     if not keep_remote:
-        runner.shell(f"rm -rf {shlex.quote(str(remote_bundle_dir))}", timeout_s=10)
+        runner.shell(
+            f"rm -rf {shlex.quote(str(remote_bundle_dir))}",
+            timeout_s=profile.shell_timeout_s,
+        )
 
     ensure_folded_from_perf_script(local_bundle_dir)
     manifest = build_manifest(
@@ -415,12 +421,51 @@ def _bundle_stem(job: dict[str, Any]) -> str:
     return bundle_name
 
 
-def _capture_timeout(job: dict[str, Any]) -> int:
+def _capture_timeout(
+    job: dict[str, Any],
+    *,
+    profile: DeviceProfile | None = None,
+    callgraph_mode: str = "fp",
+) -> int:
     perf = job.get("perf", {})
-    duration = float(perf.get("duration_s", 30))
+    override = _first_int(
+        perf.get("timeout_s"),
+        job.get("timeout_s"),
+        perf.get("capture_timeout_s"),
+        profile.capture_timeout_s if profile is not None else None,
+    )
+    if override is not None:
+        return max(1, override)
+    duration = max(0.0, float(perf.get("duration_s", 30)))
     repeat = int(perf.get("repeat", 1))
     warmup = int(perf.get("warmup", 0))
-    return int(max(30, (duration + 5) * max(1, repeat + warmup) + 30))
+    iterations = max(1, repeat + warmup)
+    if str(job.get("target", {}).get("kind")) == "command" and duration <= 0:
+        record_budget = _first_int(
+            perf.get("command_timeout_s"),
+            job.get("command_timeout_s"),
+            profile.command_timeout_s if profile is not None else None,
+        )
+        if record_budget is None:
+            record_budget = 300
+    else:
+        record_budget = int((duration + 5) * iterations + 30)
+    script_budget = _first_int(
+        perf.get("perf_script_timeout_s"),
+        job.get("perf_script_timeout_s"),
+        profile.perf_script_timeout_s if profile is not None else None,
+    )
+    if script_budget is None:
+        script_budget = int(max(120 if callgraph_mode == "dwarf" else 60, duration * 2))
+    return int(max(60, record_budget + script_budget))
+
+
+def _first_int(*values: Any) -> int | None:
+    for value in values:
+        if value is None or value == "":
+            continue
+        return int(value)
+    return None
 
 
 def _target_value(target: dict[str, Any]) -> str:

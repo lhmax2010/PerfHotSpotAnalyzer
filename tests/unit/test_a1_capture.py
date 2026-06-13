@@ -175,6 +175,7 @@ def test_remote_capture_uses_device_runner_and_host_folded_generation(
                 "perf_path: /usr/bin/perf",
                 "arch: aarch64",
                 "target_has_stackcollapse: false",
+                "shell_timeout_s: 77",
             ]
         )
         + "\n",
@@ -202,6 +203,7 @@ def test_remote_capture_uses_device_runner_and_host_folded_generation(
 
     pushed_paths: list[str] = []
     script_calls: list[tuple[str, list[str]]] = []
+    shell_timeouts: list[int] = []
 
     class FakeRunner:
         def __init__(self, profile, tracer=None):
@@ -209,6 +211,7 @@ def test_remote_capture_uses_device_runner_and_host_folded_generation(
 
         def shell(self, cmd, timeout_s):
             assert "runner.sh" not in cmd
+            shell_timeouts.append(timeout_s)
             return CompletedRun(cmd, 0, "", "", 1)
 
         def shell_script(self, script_text, args, timeout_s):
@@ -242,9 +245,57 @@ def test_remote_capture_uses_device_runner_and_host_folded_generation(
     assert (result.bundle_dir / "out.folded").read_text(encoding="utf-8").strip()
     assert pushed_paths == [str(remote / "tizen-bundle" / "capture-job.yaml")]
     assert script_calls
+    assert script_calls[0][1][0] == str(remote / "tizen-bundle")
+    assert shell_timeouts == [77, 77]
     assert "runner.sh" not in " ".join(script_calls[0][1])
     assert "record_args=" in script_calls[0][0]
     validate_document(result.manifest, document_type=CAPTURE_BUNDLE)
+
+
+def test_capture_timeout_command_duration_zero_uses_workload_budget(tmp_path: Path) -> None:
+    capture = load_capture_module()
+    profile = DeviceProfile(
+        name="board",
+        backend="ssh",
+        arch="armv7l",
+        path=tmp_path / "board.yaml",
+        remote_workdir=Path("/root/perf-skill"),
+        command_timeout_s=240,
+        perf_script_timeout_s=80,
+    )
+    job = {
+        "target": {"kind": "command", "command": "ffmpeg -i input -f null -"},
+        "perf": {"duration_s": 0, "repeat": 1, "warmup": 0},
+    }
+
+    assert capture._capture_timeout(job, profile=profile, callgraph_mode="fp") == 320
+
+
+def test_capture_timeout_job_override_wins(tmp_path: Path) -> None:
+    capture = load_capture_module()
+    profile = DeviceProfile(
+        name="board",
+        backend="ssh",
+        arch="armv7l",
+        path=tmp_path / "board.yaml",
+        capture_timeout_s=500,
+    )
+    job = {
+        "target": {"kind": "command", "command": "ffmpeg -i input -f null -"},
+        "perf": {"duration_s": 0, "timeout_s": 123},
+    }
+
+    assert capture._capture_timeout(job, profile=profile, callgraph_mode="fp") == 123
+
+
+def test_runner_logs_perf_record_and_script_timing() -> None:
+    script = (
+        ROOT / "skills" / "perf-hotspot-analyzer" / "target-side" / "runner.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "run_timed perf-record" in script
+    assert "run_redirect_timed perf-script" in script
+    assert "elapsed_s=" in script
 
 
 def write_remote_bundle_artifacts(bundle: Path) -> None:

@@ -26,6 +26,31 @@ run_logged() {
   "$@" >> "${EXEC_LOG}" 2>&1
 }
 
+run_timed() {
+  label="$1"
+  shift
+  started_s="$(date +%s)"
+  log_cmd "start ${label}: $*"
+  "$@" >> "${EXEC_LOG}" 2>&1
+  status="$?"
+  ended_s="$(date +%s)"
+  log_cmd "finish ${label}: status=${status} elapsed_s=$((ended_s - started_s))"
+  return "${status}"
+}
+
+run_redirect_timed() {
+  label="$1"
+  output="$2"
+  shift 2
+  started_s="$(date +%s)"
+  log_cmd "start ${label}: $* > ${output}"
+  "$@" > "${output}" 2>> "${EXEC_LOG}"
+  status="$?"
+  ended_s="$(date +%s)"
+  log_cmd "finish ${label}: status=${status} elapsed_s=$((ended_s - started_s))"
+  return "${status}"
+}
+
 record_args=("${PERF_PATH}" record "-F" "${FREQ_HZ}" "-e" "${EVENTS}" "-o" "${OUTPUT_DIR}/perf.data")
 if [[ "${CALLGRAPH_MODE}" != "none" ]]; then
   record_args+=("-g" "--call-graph" "${CALLGRAPH_MODE}")
@@ -60,19 +85,16 @@ else
   exit 2
 fi
 
-run_logged "${record_args[@]}"
+run_timed perf-record "${record_args[@]}"
 
 script_cmd=("${PERF_PATH}" script "-i" "${OUTPUT_DIR}/perf.data" "-F" "comm,pid,tid,time,ip,sym,dso")
-log_cmd "${script_cmd[*]} > perf-script.txt"
-"${script_cmd[@]}" > "${OUTPUT_DIR}/perf-script.txt" 2>> "${EXEC_LOG}"
+run_redirect_timed perf-script "${OUTPUT_DIR}/perf-script.txt" "${script_cmd[@]}"
 
 report_cmd=("${PERF_PATH}" report "--stdio" "-i" "${OUTPUT_DIR}/perf.data")
-log_cmd "${report_cmd[*]} > perf-report.txt"
-"${report_cmd[@]}" > "${OUTPUT_DIR}/perf-report.txt" 2>> "${EXEC_LOG}" || true
+run_redirect_timed perf-report "${OUTPUT_DIR}/perf-report.txt" "${report_cmd[@]}" || true
 
 buildid_cmd=("${PERF_PATH}" buildid-list "-i" "${OUTPUT_DIR}/perf.data")
-log_cmd "${buildid_cmd[*]} > dso-list.txt"
-"${buildid_cmd[@]}" > "${OUTPUT_DIR}/dso-list.txt" 2>> "${EXEC_LOG}" || true
+run_redirect_timed perf-buildid-list "${OUTPUT_DIR}/dso-list.txt" "${buildid_cmd[@]}" || true
 if [[ ! -s "${OUTPUT_DIR}/dso-list.txt" ]]; then
   log_cmd "fallback readelf -n over mapped DSOs > dso-list.txt"
   maps_source="/proc/self/maps"

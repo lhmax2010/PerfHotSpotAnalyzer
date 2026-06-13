@@ -28,6 +28,11 @@ def write_device_profile(root: Path, *, backend: str = "local") -> Path:
                 f"remote_workdir: {workdir}",
                 "perf_path: /usr/bin/perf",
                 "needs_sudo: false",
+                "shell_timeout_s: 17",
+                "copy_timeout_s: 23",
+                "capture_timeout_s: 456",
+                "command_timeout_s: 345",
+                "perf_script_timeout_s: 90",
                 "target_has_stackcollapse: false",
                 "debuginfo_roots:",
                 "  - /usr/lib/debug",
@@ -67,6 +72,11 @@ def test_load_device_profile_reads_local_backend(tmp_path: Path) -> None:
     assert profile.arch == "x86_64"
     assert profile.perf_path == "/usr/bin/perf"
     assert profile.debuginfo_roots == ["/usr/lib/debug"]
+    assert profile.shell_timeout_s == 17
+    assert profile.copy_timeout_s == 23
+    assert profile.capture_timeout_s == 456
+    assert profile.command_timeout_s == 345
+    assert profile.perf_script_timeout_s == 90
 
 
 def test_local_shell_runs_in_profile_workdir(tmp_path: Path) -> None:
