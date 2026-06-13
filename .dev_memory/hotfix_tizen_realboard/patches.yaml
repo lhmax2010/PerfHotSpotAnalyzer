@@ -1,0 +1,87 @@
+patches:
+  - id: p001
+    title: "Bound source anchor lookup"
+    commit: "ab2fd70"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/postprocess.py"
+      - "tests/unit/test_a1_postprocess.py"
+    rationale: "Prevent large source trees from hanging per-symbol source anchor lookup."
+    test_commit: "ab2fd70"
+  - id: p002
+    title: "Python 3.10 runtime support"
+    commit: "7e0bbdd"
+    files_changed:
+      - ".github/workflows/ci.yml"
+      - "pyproject.toml"
+      - "common/**"
+      - "cli/**"
+      - "skills/**/scripts/*.py"
+      - "workflows/perf-optimization-pipeline/orchestrate.py"
+      - "tests/unit/test_python310_compat.py"
+    rationale: "Replace Python 3.11-only datetime.UTC use and add 3.10 compatibility guard."
+    test_commit: "7e0bbdd"
+  - id: p003
+    title: "PyYAML-first loader"
+    commit: "9a07109"
+    files_changed:
+      - "common/yaml_loader.py"
+      - "common/device_runner.py"
+      - "cli/perf_optimization_pipeline.py"
+      - "skills/perf-hotspot-analyzer/scripts/*.py"
+      - "workflows/perf-optimization-pipeline/orchestrate.py"
+      - "tests/unit/test_yaml_loader.py"
+    rationale: "Use PyYAML when available while preserving simple_yaml fallback."
+    test_commit: "9a07109"
+  - id: p004
+    title: "Run Tizen runner over stdin"
+    commit: "490ea5f"
+    files_changed:
+      - "common/device_runner.py"
+      - "skills/perf-hotspot-analyzer/scripts/capture.py"
+      - "tests/unit/test_a1_capture.py"
+      - "tests/unit/test_a1_device_runner.py"
+    rationale: "Avoid Tizen UEP by not executing pushed unsigned runner scripts."
+    test_commit: "490ea5f"
+  - id: p005
+    title: "Honor remote workdir and timeouts"
+    commit: "7447c7d"
+    files_changed:
+      - "common/device_runner.py"
+      - "skills/perf-hotspot-analyzer/scripts/capture.py"
+      - "skills/perf-hotspot-analyzer/target-side/runner.sh"
+      - "tests/unit/test_a1_capture.py"
+      - "tests/unit/test_a1_device_runner.py"
+    rationale: "Make capture timeout and remote workdir behavior configurable and realistic for duration-zero command profiling."
+    test_commit: "7447c7d"
+  - id: p006
+    title: "Prefer fp on embedded ARM"
+    commit: "760d429"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/preflight.py"
+      - "skills/perf-hotspot-analyzer/scripts/capture.py"
+      - "docs/test-guides/a3-tizen-symbolize.md"
+      - "tests/unit/test_a1_preflight.py"
+      - "tests/unit/test_a1_capture.py"
+    rationale: "Avoid ARMv7 DWARF perf-script stalls in auto callgraph mode and document the live-board guidance."
+    test_commit: "760d429"
+  - id: p007
+    title: "Accept real Tizen ARM arches"
+    commit: "29c7a95"
+    files_changed:
+      - "common/schemas/*.schema.json"
+      - "skills/perf-hotspot-analyzer/schemas/performance-findings.schema.json"
+      - "skills/perf-suggestion-patch/schemas/performance-findings.schema.json"
+      - "skills/perf-hotspot-analyzer/scripts/*.py"
+      - "tests/unit/test_a1_build_report.py"
+      - "tests/unit/test_a1_capture.py"
+      - "tests/unit/test_schema_conditions.py"
+    rationale: "Allow armv7l/armv7hl/armv8l/i686 schema and generation paths."
+    test_commit: "29c7a95"
+  - id: p008
+    title: "Capture target maps metadata"
+    commit: "3360e5b"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/target-side/runner.sh"
+      - "tests/unit/test_a1_capture.py"
+    rationale: "Capture target PID maps and non-empty/warning metadata instead of proc-self or silent empty files."
+    test_commit: "3360e5b"

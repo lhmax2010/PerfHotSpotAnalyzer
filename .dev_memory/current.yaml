@@ -1,7 +1,7 @@
 schema_version: 1
-shared_current: v1_complete
-shared_last_completed: minteg_integration
-session_count: 11
+shared_current: hotfix_tizen_realboard
+shared_last_completed: hotfix_tizen_realboard
+session_count: 12
 milestones:
   m0_schema:
     status: completed
@@ -53,22 +53,32 @@ milestones:
     branch: stage/minteg-integration
     last_commit: tag:stage-minteg-integration-done
     review_status: pending
+  hotfix_tizen_realboard:
+    status: completed
+    branch: stage/hotfix-tizen-realboard
+    last_commit: tag:stage-hotfix-tizen-realboard-done
+    review_status: pending
 lines:
   A:
-    current: v1_complete
-    last_completed: minteg_integration
-    last_commit: tag:stage-minteg-integration-done
+    current: hotfix_tizen_realboard
+    last_completed: hotfix_tizen_realboard
+    last_commit: tag:stage-hotfix-tizen-realboard-done
     review_status: pending
   B:
-    current: v1_complete
-    last_completed: minteg_integration
-    last_commit: tag:stage-minteg-integration-done
+    current: hotfix_tizen_realboard
+    last_completed: hotfix_tizen_realboard
+    last_commit: tag:stage-hotfix-tizen-realboard-done
     review_status: pending
 next_steps:
-  - "Wait for M-integ review. v1 implementation is complete after this review."
+  - "Wait for hotfix Tizen real-board review."
   - "Future work belongs in v1.1/v2 backlog: closed-loop patch validation, true measured_impact, private Compiling Agent API integration, broader profiler/parser support."
 blocked_on: null
 notes: |
+  Hotfix Tizen real-board is implemented on stage/hotfix-tizen-realboard from
+  the v1 complete integration branch. It fixes the eight ssh/Tizen/ffmpeg live
+  profiling issues discovered on armv7l hardware without changing the v1
+  architecture.
+
   M-integ is implemented on stage/minteg-integration from the M-final branch.
   Cline CLI/rules examples, a Compiling Agent CLI adapter draft, and the v1
   integration guide are complete. This is the final v1 milestone.
