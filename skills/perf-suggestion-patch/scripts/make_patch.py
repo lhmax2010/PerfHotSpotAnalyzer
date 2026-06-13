@@ -6,7 +6,7 @@ import difflib
 import json
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +67,7 @@ def build_patch_document(
         "provenance": {
             "generated_by": "perf-suggestion-patch.make_patch",
             "version": "1.0.0-b3",
-            "timestamp": generated_at or datetime.now(UTC).isoformat(),
+            "timestamp": generated_at or datetime.now(timezone.utc).isoformat(),
         },
     }
     schema_validate.validate_document(

@@ -9,7 +9,7 @@ import re
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -864,7 +864,7 @@ def build_postprocess_document(
         "provenance": {
             "generated_by": "perf-hotspot-analyzer/postprocess",
             "version": "1.0.0",
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     }
     if tizen is not None:
@@ -936,7 +936,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     started = time.monotonic()
-    started_at = datetime.now(UTC).isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
     tracer = start_trace(
         skill="perf-hotspot-analyzer",
         output_dir=args.output_dir,

@@ -8,7 +8,7 @@ import os
 import platform
 import shutil
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -40,7 +40,7 @@ def run_preflight(
     )
     result = {
         "schema_version": "preflight/v1",
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "perf": perf,
         "kernel": {
             "perf_event_paranoid": paranoid,

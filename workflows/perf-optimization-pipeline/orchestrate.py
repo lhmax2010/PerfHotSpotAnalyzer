@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -86,7 +86,7 @@ def run_pipeline(
     run_id = str(run_id_override or config.get("run_id") or _new_run_id())
     run_dir = _run_dir(repo_root, config, run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
-    started_at = datetime.now(UTC).isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
     started = time.monotonic()
     command_executor = executor or _default_executor
     orchestrator = PipelineOrchestrator(
@@ -531,7 +531,7 @@ class PipelineOrchestrator:
             "reason": reason,
             "artifact": str(artifact),
             "counts": _gate_counts(artifact),
-            "updated_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self.state.setdefault("gates", {})[name] = record
         self._write_state()
@@ -585,7 +585,7 @@ class PipelineOrchestrator:
     def _record_stage(self, name: str, data: Mapping[str, Any]) -> None:
         stages = self.state.setdefault("stages", {})
         stages[name] = {
-            "updated_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             **dict(data),
         }
         self._write_state()
@@ -696,7 +696,7 @@ def _run_dir(repo_root: Path, config: Mapping[str, Any], run_id: str) -> Path:
 
 
 def _new_run_id() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _non_interactive(config: Mapping[str, Any], override: bool | None) -> bool:

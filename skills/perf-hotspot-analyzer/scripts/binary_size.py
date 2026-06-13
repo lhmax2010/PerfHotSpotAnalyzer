@@ -9,7 +9,7 @@ import platform
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -242,7 +242,7 @@ def build_binary_size_document(
         "provenance": {
             "generated_by": "perf-hotspot-analyzer/binary_size",
             "version": "1.0.0",
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     }
     if comparison is not None:

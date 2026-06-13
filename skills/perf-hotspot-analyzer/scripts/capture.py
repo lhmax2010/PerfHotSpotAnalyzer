@@ -10,7 +10,7 @@ import shlex
 import sys
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -182,7 +182,7 @@ def run_capture_preflight(
     )
     result = {
         "schema_version": "preflight/v1",
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "perf": {
             "path": profile.perf_path,
             "available": True,
@@ -264,7 +264,7 @@ def build_manifest(
             "generated_by": "perf-hotspot-analyzer/capture",
             "captured_by": "perf-hotspot-analyzer/capture",
             "version": "1.0.0",
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "source_job": str(Path(job_path)),
         },
     }
@@ -359,7 +359,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     started = time.monotonic()
-    started_at = datetime.now(UTC).isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
     tracer = start_trace(
         skill="perf-hotspot-analyzer",
         output_dir=args.output_dir,

@@ -6,7 +6,7 @@ import json
 import os
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -45,7 +45,7 @@ class TraceLogger:
         if LEVELS.get(level_name, 20) < LEVELS[self.level_name]:
             return
         record = {
-            "ts": datetime.now(UTC).isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "level": level_name,
             "trace_id": self.trace_id,
             "skill": self.skill,

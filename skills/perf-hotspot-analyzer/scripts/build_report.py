@@ -6,7 +6,7 @@ import argparse
 import json
 import os
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -36,7 +36,7 @@ def build_report(
     (output / "analysis-report.md").write_text(markdown, encoding="utf-8")
     run_report = build_run_report(
         trace_id=tracer.trace_id if tracer is not None else "manual",
-        started_at=datetime.now(UTC).isoformat(),
+        started_at=datetime.now(timezone.utc).isoformat(),
         total_ms=0,
         document=document,
         analysis=analysis,
@@ -82,7 +82,7 @@ def build_performance_findings(
         "provenance": {
             "generated_by": "perf-hotspot-analyzer/build_report",
             "version": "1.0.0",
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     }
     if "tizen" in analysis:
@@ -214,7 +214,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         run_report = build_run_report(
             trace_id=tracer.trace_id,
-            started_at=datetime.now(UTC).isoformat(),
+            started_at=datetime.now(timezone.utc).isoformat(),
             total_ms=int((time.monotonic() - started) * 1000),
             document=document,
             analysis=_load_json(Path(args.analysis)),

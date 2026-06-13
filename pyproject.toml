@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "perf-hotspot-analyzer"
 version = "0.1.0"
 description = "Performance hotspot analysis and suggestion patch skill suite."
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
   "jsonschema>=4.18",
 ]

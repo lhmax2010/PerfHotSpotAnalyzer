@@ -7,7 +7,7 @@ import importlib.util
 import json
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -30,7 +30,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     started = time.monotonic()
-    started_at = datetime.now(UTC).isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
     output_dir = Path(getattr(args, "output_dir", "out"))
     tracer = start_trace(
         skill="perf-hotspot-analyzer",

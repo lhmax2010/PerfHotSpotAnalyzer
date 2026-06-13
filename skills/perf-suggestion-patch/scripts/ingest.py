@@ -10,7 +10,7 @@ import re
 import sys
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -327,7 +327,7 @@ def normalize_generic_llm_document(
     provenance = normalized.setdefault("provenance", {})
     provenance.setdefault("generated_by", "host-agent-generic-llm")
     provenance.setdefault("version", "1.0.0-b2")
-    provenance.setdefault("timestamp", datetime.now(UTC).isoformat())
+    provenance.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
     return normalized
 
 
@@ -419,7 +419,7 @@ def normalize_folded_stacks(
         "provenance": {
             "generated_by": "perf-suggestion-patch.ingest",
             "version": "1.0.0-b2",
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     }
 
@@ -513,7 +513,7 @@ def normalize_google_benchmark(
         "provenance": {
             "generated_by": "perf-suggestion-patch.ingest",
             "version": "1.0.0-b2",
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         },
     }
     if baseline_document is not None and baseline_path is not None:
@@ -595,7 +595,7 @@ def build_suggestion_patch(
         "provenance": {
             "generated_by": "perf-suggestion-patch.ingest",
             "version": "1.0.0-b1",
-            "timestamp": generated_at or datetime.now(UTC).isoformat(),
+            "timestamp": generated_at or datetime.now(timezone.utc).isoformat(),
             "input_report": str(report.path),
         },
     }
@@ -775,7 +775,7 @@ def run_ingested_report(
 
     report = enrich_report_with_repo_anchors(report)
     started = time.monotonic()
-    started_at = datetime.now(UTC).isoformat()
+    started_at = datetime.now(timezone.utc).isoformat()
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 

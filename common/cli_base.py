@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -80,7 +80,7 @@ def run_validate_cli(
             output_dir=output_dir,
             trace_id=tracer.trace_id,
             skill=skill,
-            started_at=datetime.now(UTC).isoformat(),
+            started_at=datetime.now(timezone.utc).isoformat(),
             total_ms=total_ms,
             input_path=args.input,
             document_type=args.document_type,
