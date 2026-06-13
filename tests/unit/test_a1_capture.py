@@ -200,18 +200,27 @@ def test_remote_capture_uses_device_runner_and_host_folded_generation(
         encoding="utf-8",
     )
 
+    pushed_paths: list[str] = []
+    script_calls: list[tuple[str, list[str]]] = []
+
     class FakeRunner:
         def __init__(self, profile, tracer=None):
             self.profile = profile
 
         def shell(self, cmd, timeout_s):
-            if "runner.sh" in cmd:
-                bundle = self.profile.remote_workdir / "tizen-bundle"
-                bundle.mkdir(parents=True, exist_ok=True)
-                write_remote_bundle_artifacts(bundle)
+            assert "runner.sh" not in cmd
             return CompletedRun(cmd, 0, "", "", 1)
 
+        def shell_script(self, script_text, args, timeout_s):
+            script_calls.append((script_text, [str(arg) for arg in args]))
+            bundle = self.profile.remote_workdir / "tizen-bundle"
+            bundle.mkdir(parents=True, exist_ok=True)
+            write_remote_bundle_artifacts(bundle)
+            return CompletedRun("bash -s", 0, "", "", 1)
+
         def push(self, local_path, remote_path):
+            pushed_paths.append(str(remote_path))
+            assert Path(remote_path).name != "runner.sh"
             Path(remote_path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(local_path, remote_path)
 
@@ -231,6 +240,10 @@ def test_remote_capture_uses_device_runner_and_host_folded_generation(
     assert result.manifest["device"]["arch"] == "aarch64"
     assert result.manifest["perf"]["callgraph_mode"] == "dwarf"
     assert (result.bundle_dir / "out.folded").read_text(encoding="utf-8").strip()
+    assert pushed_paths == [str(remote / "tizen-bundle" / "capture-job.yaml")]
+    assert script_calls
+    assert "runner.sh" not in " ".join(script_calls[0][1])
+    assert "record_args=" in script_calls[0][0]
     validate_document(result.manifest, document_type=CAPTURE_BUNDLE)
 
 

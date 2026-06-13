@@ -90,6 +90,17 @@ def test_local_shell_reports_timeout(tmp_path: Path) -> None:
     assert result.timed_out
 
 
+def test_local_shell_script_runs_from_stdin_in_profile_workdir(tmp_path: Path) -> None:
+    write_device_profile(tmp_path)
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+
+    result = runner.shell_script("pwd\nprintf '%s\\n' \"$1\"\n", ["arg-ok"], timeout_s=5)
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [str(tmp_path / "remote"), "arg-ok"]
+    assert result.args.startswith("bash -s --")
+
+
 def test_local_push_and_pull_copy_files(tmp_path: Path) -> None:
     write_device_profile(tmp_path)
     runner = DeviceRunner.from_name("host", repo_root=tmp_path)
@@ -191,6 +202,23 @@ def test_ssh_shell_failure_reports_tizen_remediation(
     assert "Permission denied" in result.stderr
     assert "openssh-server" in result.stderr
     assert "authorized_keys" in result.stderr
+
+
+def test_ssh_shell_script_uses_stdin_pipeline_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fakebin = install_fake_ssh_tools(tmp_path)
+    monkeypatch.setenv("PATH", f"{fakebin}:{fakebin.parent}")
+    write_device_profile(tmp_path, backend="ssh")
+    runner = DeviceRunner.from_name("host", repo_root=tmp_path)
+
+    result = runner.shell_script("echo never-on-command-line\n", ["/root/work/bundle"], timeout_s=5)
+
+    assert result.returncode == 0
+    log = (tmp_path / "ssh.log").read_text(encoding="utf-8")
+    assert "bash -s -- /root/work/bundle" in log
+    assert "never-on-command-line" not in log
 
 
 def test_ssh_push_and_pull_use_scp_with_remote_spec(

@@ -8,7 +8,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from common.yaml_loader import load_yaml
 
@@ -127,6 +127,80 @@ class DeviceRunner:
             )
             return completed
 
+    def shell_script(
+        self,
+        script_text: str,
+        args: Sequence[str | Path],
+        timeout_s: int,
+    ) -> CompletedRun:
+        argv_args = [str(arg) for arg in args]
+        command = "bash -s -- " + " ".join(shlex.quote(arg) for arg in argv_args)
+        self._trace("shell_script", "start", command=command, timeout_s=timeout_s)
+        if self.profile.backend == "ssh":
+            target = self._ssh_target()
+            argv = ["ssh", *_split_options(self.profile.ssh_opts), target, command]
+            return self._run_backend_command(
+                step="shell_script",
+                argv=argv,
+                timeout_s=timeout_s,
+                command_for_result=command,
+                remediation=_ssh_remediation(self.profile),
+                input_text=script_text,
+            )
+        if self.profile.backend == "sdb":
+            argv = [*_sdb_prefix(self.profile), "shell", command]
+            return self._run_backend_command(
+                step="shell_script",
+                argv=argv,
+                timeout_s=timeout_s,
+                command_for_result=command,
+                remediation=_sdb_remediation(self.profile),
+                input_text=script_text,
+            )
+        if self.profile.backend != "local":
+            return self._unsupported_backend("shell_script")
+        started = time.monotonic()
+        try:
+            result = subprocess.run(
+                ["bash", "-s", "--", *argv_args],
+                input=script_text,
+                cwd=self.profile.remote_workdir,
+                text=True,
+                capture_output=True,
+                timeout=timeout_s,
+                check=False,
+            )
+            completed = CompletedRun(
+                args=command,
+                returncode=result.returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+            self._trace(
+                "shell_script",
+                "finish",
+                returncode=completed.returncode,
+                elapsed_ms=completed.elapsed_ms,
+            )
+            return completed
+        except subprocess.TimeoutExpired as exc:
+            completed = CompletedRun(
+                args=command,
+                returncode=124,
+                stdout=_decode_timeout_stream(exc.stdout),
+                stderr=_decode_timeout_stream(exc.stderr),
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+                timed_out=True,
+            )
+            self._trace(
+                "shell_script",
+                "timeout",
+                returncode=completed.returncode,
+                elapsed_ms=completed.elapsed_ms,
+            )
+            return completed
+
     def push(self, local_path: str | Path, remote_path: str | Path) -> None:
         self._trace("push", "start", local_path=str(local_path), remote_path=str(remote_path))
         if self.profile.backend == "ssh":
@@ -222,12 +296,14 @@ class DeviceRunner:
         timeout_s: int,
         command_for_result: str,
         remediation: str,
+        input_text: str | None = None,
     ) -> CompletedRun:
         self._trace(step, "exec", argv=argv, timeout_s=timeout_s)
         started = time.monotonic()
         try:
             result = subprocess.run(
                 argv,
+                input=input_text,
                 text=True,
                 capture_output=True,
                 timeout=timeout_s,

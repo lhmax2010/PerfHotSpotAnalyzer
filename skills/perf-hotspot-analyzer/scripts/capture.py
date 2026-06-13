@@ -85,16 +85,19 @@ def run_capture(
     runner = DeviceRunner(profile, tracer=tracer)
     runner.shell(f"mkdir -p {shlex.quote(str(remote_bundle_dir))}", timeout_s=10)
     runner.push(job_path, remote_bundle_dir / "capture-job.yaml")
-    runner.push(_runner_script_path(), remote_bundle_dir / "runner.sh")
 
-    command = build_runner_command(
+    runner_args = build_runner_args(
         remote_bundle_dir=remote_bundle_dir,
         profile=profile,
         job=job,
         callgraph_mode=callgraph_mode,
     )
     started = time.monotonic()
-    run = runner.shell(command, timeout_s=_capture_timeout(job))
+    run = runner.shell_script(
+        _runner_script_path().read_text(encoding="utf-8"),
+        runner_args,
+        timeout_s=_capture_timeout(job),
+    )
     if run.returncode != 0:
         raise RuntimeError(f"capture runner failed with {run.returncode}: {run.stderr}")
     if profile.backend == "local":
@@ -141,12 +144,26 @@ def build_runner_command(
     job: dict[str, Any],
     callgraph_mode: str,
 ) -> str:
+    args = build_runner_args(
+        remote_bundle_dir=remote_bundle_dir,
+        profile=profile,
+        job=job,
+        callgraph_mode=callgraph_mode,
+    )
+    return "bash -s -- " + " ".join(shlex.quote(arg) for arg in args)
+
+
+def build_runner_args(
+    *,
+    remote_bundle_dir: Path,
+    profile: DeviceProfile,
+    job: dict[str, Any],
+    callgraph_mode: str,
+) -> list[str]:
     target = job["target"]
     perf = job["perf"]
     events = ",".join(str(event) for event in perf.get("events", ["cycles"]))
-    args = [
-        "bash",
-        str(remote_bundle_dir / "runner.sh"),
+    return [
         str(remote_bundle_dir),
         profile.perf_path,
         str(target.get("kind")),
@@ -159,7 +176,6 @@ def build_runner_command(
         str(perf.get("warmup", 0)),
         "true" if profile.target_has_stackcollapse else "false",
     ]
-    return " ".join(shlex.quote(arg) for arg in args)
 
 
 def run_capture_preflight(
