@@ -16,6 +16,7 @@ TARGET_HAS_STACKCOLLAPSE="${11:-false}"
 mkdir -p "${OUTPUT_DIR}"
 EXEC_LOG="${OUTPUT_DIR}/exec.log"
 : > "${EXEC_LOG}"
+TARGET_PID_FILE="${OUTPUT_DIR}/target.pid"
 
 log_cmd() {
   printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "${EXEC_LOG}"
@@ -51,6 +52,36 @@ run_redirect_timed() {
   return "${status}"
 }
 
+write_unavailable_file() {
+  path="$1"
+  reason="$2"
+  printf '# unavailable: %s\n' "${reason}" > "${path}"
+  log_cmd "warning: ${reason}"
+}
+
+copy_proc_maps() {
+  target_pid="$1"
+  if [[ -n "${target_pid}" && -r "/proc/${target_pid}/maps" ]]; then
+    if cp "/proc/${target_pid}/maps" "${OUTPUT_DIR}/proc-${target_pid}-maps" 2>> "${EXEC_LOG}"; then
+      return 0
+    fi
+  fi
+  write_unavailable_file "${OUTPUT_DIR}/proc-${target_pid:-unknown}-maps" "unable to read /proc/${target_pid:-unknown}/maps for target process"
+  return 1
+}
+
+write_kallsyms() {
+  if [[ -r /proc/kallsyms ]]; then
+    if cp /proc/kallsyms "${OUTPUT_DIR}/kallsyms" 2>> "${EXEC_LOG}" && [[ -s "${OUTPUT_DIR}/kallsyms" ]]; then
+      return 0
+    fi
+    write_unavailable_file "${OUTPUT_DIR}/kallsyms" "unable to copy non-empty /proc/kallsyms; check perf_event_paranoid or root permissions"
+    return 1
+  fi
+  write_unavailable_file "${OUTPUT_DIR}/kallsyms" "/proc/kallsyms is not readable; check perf_event_paranoid or root permissions"
+  return 1
+}
+
 record_args=("${PERF_PATH}" record "-F" "${FREQ_HZ}" "-e" "${EVENTS}" "-o" "${OUTPUT_DIR}/perf.data")
 if [[ "${CALLGRAPH_MODE}" != "none" ]]; then
   record_args+=("-g" "--call-graph" "${CALLGRAPH_MODE}")
@@ -77,9 +108,19 @@ if [[ "${TARGET_KIND}" == "service" ]]; then
 fi
 
 if [[ "${TARGET_KIND}" == "pid" ]]; then
+  printf '%s\n' "${TARGET_VALUE}" > "${TARGET_PID_FILE}"
+  copy_proc_maps "${TARGET_VALUE}" || true
   record_args+=("-p" "${TARGET_VALUE}" "--" "sleep" "${DURATION_S}")
 elif [[ "${TARGET_KIND}" == "command" ]]; then
-  record_args+=("--" "bash" "-lc" "${TARGET_VALUE}")
+  record_args+=(
+    "--"
+    "env"
+    "PERF_SKILL_OUTPUT_DIR=${OUTPUT_DIR}"
+    "PERF_SKILL_TARGET_COMMAND=${TARGET_VALUE}"
+    "bash"
+    "-lc"
+    'target_pid=$$; printf "%s\n" "${target_pid}" > "${PERF_SKILL_OUTPUT_DIR}/target.pid"; (for attempt in 1 2 3 4 5; do if [[ -r "/proc/${target_pid}/maps" ]]; then cp "/proc/${target_pid}/maps" "${PERF_SKILL_OUTPUT_DIR}/proc-${target_pid}-maps" 2>/dev/null && exit 0; fi; sleep 0.1; done) & eval "exec ${PERF_SKILL_TARGET_COMMAND}"'
+  )
 else
   printf 'unsupported target kind for perf runner: %s\n' "${TARGET_KIND}" >&2
   exit 2
@@ -97,31 +138,32 @@ buildid_cmd=("${PERF_PATH}" buildid-list "-i" "${OUTPUT_DIR}/perf.data")
 run_redirect_timed perf-buildid-list "${OUTPUT_DIR}/dso-list.txt" "${buildid_cmd[@]}" || true
 if [[ ! -s "${OUTPUT_DIR}/dso-list.txt" ]]; then
   log_cmd "fallback readelf -n over mapped DSOs > dso-list.txt"
-  maps_source="/proc/self/maps"
-  if [[ "${TARGET_KIND}" == "pid" && -r "/proc/${TARGET_VALUE}/maps" ]]; then
-    maps_source="/proc/${TARGET_VALUE}/maps"
+  maps_pid=""
+  if [[ -s "${TARGET_PID_FILE}" ]]; then
+    maps_pid="$(cat "${TARGET_PID_FILE}" 2>/dev/null || true)"
   fi
-  awk '{print $6}' "${maps_source}" 2>/dev/null | sort -u | while read -r dso; do
-    [[ -r "${dso}" ]] || continue
-    build_id="$(readelf -n "${dso}" 2>/dev/null | awk '/Build ID:/ {print $3; exit}')"
-    [[ -n "${build_id}" ]] && printf '%s %s\n' "${build_id}" "${dso}"
-  done > "${OUTPUT_DIR}/dso-list.txt" || true
+  maps_source="${OUTPUT_DIR}/proc-${maps_pid}-maps"
+  if [[ -n "${maps_pid}" && -r "${maps_source}" ]]; then
+    awk '{print $6}' "${maps_source}" 2>/dev/null | sort -u | while read -r dso; do
+      [[ -r "${dso}" ]] || continue
+      build_id="$(readelf -n "${dso}" 2>/dev/null | awk '/Build ID:/ {print $3; exit}')"
+      [[ -n "${build_id}" ]] && printf '%s %s\n' "${build_id}" "${dso}"
+    done > "${OUTPUT_DIR}/dso-list.txt" || true
+  else
+    log_cmd "warning: no target proc maps available for readelf build-id fallback"
+  fi
 fi
 
-if [[ -r /proc/kallsyms ]]; then
-  cp /proc/kallsyms "${OUTPUT_DIR}/kallsyms" 2>> "${EXEC_LOG}" || : > "${OUTPUT_DIR}/kallsyms"
-else
-  : > "${OUTPUT_DIR}/kallsyms"
-fi
+write_kallsyms || true
 
-maps_pid="self"
-if [[ "${TARGET_KIND}" == "pid" ]]; then
-  maps_pid="${TARGET_VALUE}"
+target_maps_pid=""
+if [[ -s "${TARGET_PID_FILE}" ]]; then
+  target_maps_pid="$(cat "${TARGET_PID_FILE}" 2>/dev/null || true)"
 fi
-if [[ -r "/proc/${maps_pid}/maps" ]]; then
-  cp "/proc/${maps_pid}/maps" "${OUTPUT_DIR}/proc-${maps_pid}-maps" 2>> "${EXEC_LOG}" || : > "${OUTPUT_DIR}/proc-${maps_pid}-maps"
-else
-  cp /proc/self/maps "${OUTPUT_DIR}/proc-self-maps" 2>> "${EXEC_LOG}" || : > "${OUTPUT_DIR}/proc-self-maps"
+if [[ -n "${target_maps_pid}" && ! -s "${OUTPUT_DIR}/proc-${target_maps_pid}-maps" ]]; then
+  copy_proc_maps "${target_maps_pid}" || true
+elif [[ -z "${target_maps_pid}" ]]; then
+  write_unavailable_file "${OUTPUT_DIR}/proc-unknown-maps" "target pid was not recorded; cannot capture target maps"
 fi
 
 governor="unknown"

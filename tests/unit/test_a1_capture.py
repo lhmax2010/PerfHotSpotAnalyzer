@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -358,6 +359,71 @@ def test_runner_logs_perf_record_and_script_timing() -> None:
     assert "run_timed perf-record" in script
     assert "run_redirect_timed perf-script" in script
     assert "elapsed_s=" in script
+
+
+def test_runner_captures_command_target_pid_maps(tmp_path: Path) -> None:
+    fake_perf = tmp_path / "fake-perf"
+    fake_perf.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  record)
+    output=""
+    while [[ "$#" -gt 0 ]]; do
+      if [[ "$1" == "-o" ]]; then output="$2"; shift 2; continue; fi
+      if [[ "$1" == "--" ]]; then shift; break; fi
+      shift
+    done
+    "$@"
+    printf 'perfdata\n' > "${output}"
+    ;;
+  script)
+    printf 'demo 1/1 1.0: 1 hot_symbol (/bin/sleep)\n'
+    ;;
+  report)
+    printf 'hot_symbol\n'
+    ;;
+  buildid-list)
+    exit 0
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_perf.chmod(0o755)
+    bundle = tmp_path / "bundle"
+    runner = ROOT / "skills" / "perf-hotspot-analyzer" / "target-side" / "runner.sh"
+
+    subprocess.run(
+        [
+            "bash",
+            str(runner),
+            str(bundle),
+            str(fake_perf),
+            "command",
+            "sleep 0.2",
+            "cycles",
+            "99",
+            "fp",
+            "0",
+            "1",
+            "0",
+            "false",
+        ],
+        check=True,
+        timeout=10,
+    )
+
+    target_pid = (bundle / "target.pid").read_text(encoding="utf-8").strip()
+    maps_path = bundle / f"proc-{target_pid}-maps"
+    assert target_pid
+    assert maps_path.exists()
+    assert maps_path.stat().st_size > 0
+    assert not (bundle / "proc-self-maps").exists()
+    assert (bundle / "kallsyms").stat().st_size > 0
 
 
 def write_remote_bundle_artifacts(bundle: Path) -> None:
