@@ -16,7 +16,7 @@ from common.cli_base import (
     run_validate_cli,
 )
 from common.schema_validate import CAPTURE_BUNDLE, PERFORMANCE_FINDINGS, SUGGESTION_PATCH
-from common.simple_yaml import load_yaml
+from common.yaml_loader import load_yaml
 from common.tracing import start_trace
 
 

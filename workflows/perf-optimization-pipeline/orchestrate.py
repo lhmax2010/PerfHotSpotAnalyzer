@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from common.simple_yaml import load_yaml
+from common.yaml_loader import load_yaml
 from common.tracing import TraceLogger
 
 

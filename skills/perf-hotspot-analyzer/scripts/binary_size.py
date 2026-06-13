@@ -15,7 +15,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from common import schema_validate
 from common.schema_validate import PERFORMANCE_FINDINGS
-from common.simple_yaml import load_yaml
+from common.yaml_loader import load_yaml
 
 
 READ_TIMEOUT_S = 20

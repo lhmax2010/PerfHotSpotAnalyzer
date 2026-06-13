@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from common.simple_yaml import load_yaml
+from common.yaml_loader import load_yaml
 
 
 @dataclass(frozen=True)
