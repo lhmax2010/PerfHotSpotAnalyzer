@@ -1,0 +1,18 @@
+patches:
+  - id: p001
+    title: "Bound realboard anchor searches"
+    commit: "1cc42e6"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/postprocess.py"
+      - "tests/unit/test_a1_postprocess.py"
+    rationale: "Skip invalid perf symbols, cache bounded lookup misses, and resolve ctags pattern-only entries to real source lines."
+    test_commit: "1cc42e6"
+  - id: p002
+    title: "Preserve owned realboard hotspots"
+    commit: "6b7ceef"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/postprocess.py"
+      - "tests/unit/test_a1_postprocess.py"
+      - "docs/test-guides/a3-tizen-symbolize.md"
+    rationale: "Match versioned /usr/lib DSOs against ownership globs and prevent system noise from hiding owned hotspots."
+    test_commit: "6b7ceef"

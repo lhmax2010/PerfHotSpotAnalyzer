@@ -1,7 +1,7 @@
 schema_version: 1
-shared_current: hotfix_ctags_index_perf
-shared_last_completed: hotfix_ctags_index_perf
-session_count: 13
+shared_current: hotfix_realboard_analyze_correctness
+shared_last_completed: hotfix_realboard_analyze_correctness
+session_count: 14
 milestones:
   m0_schema:
     status: completed
@@ -63,22 +63,34 @@ milestones:
     branch: stage/hotfix-ctags-index-perf
     last_commit: tag:stage-hotfix-ctags-index-perf-done
     review_status: pending
+  hotfix_realboard_analyze_correctness:
+    status: completed
+    branch: stage/hotfix-realboard-analyze-correctness
+    last_commit: tag:stage-hotfix-realboard-analyze-correctness-done
+    review_status: pending
 lines:
   A:
-    current: hotfix_ctags_index_perf
-    last_completed: hotfix_ctags_index_perf
-    last_commit: tag:stage-hotfix-ctags-index-perf-done
+    current: hotfix_realboard_analyze_correctness
+    last_completed: hotfix_realboard_analyze_correctness
+    last_commit: tag:stage-hotfix-realboard-analyze-correctness-done
     review_status: pending
   B:
-    current: hotfix_ctags_index_perf
-    last_completed: hotfix_ctags_index_perf
-    last_commit: tag:stage-hotfix-ctags-index-perf-done
+    current: hotfix_realboard_analyze_correctness
+    last_completed: hotfix_realboard_analyze_correctness
+    last_commit: tag:stage-hotfix-realboard-analyze-correctness-done
     review_status: pending
 next_steps:
-  - "Wait for hotfix ctags index performance review."
+  - "Wait for hotfix realboard analyze correctness review."
   - "Future work belongs in v1.1/v2 backlog: closed-loop patch validation, true measured_impact, private Compiling Agent API integration, broader profiler/parser support."
 blocked_on: null
 notes: |
+  Hotfix realboard analyze correctness is implemented on
+  stage/hotfix-realboard-analyze-correctness from the ctags performance hotfix
+  branch. It codifies the manually verified Tizen armv7l + ffmpeg analyze fixes:
+  invalid-symbol guards, miss caching, pattern-only ctags real line lookup,
+  versioned DSO ownership matching, and owned hotspot retention under system
+  noise.
+
   Hotfix ctags index performance is implemented on
   stage/hotfix-ctags-index-perf from the Tizen real-board hotfix branch. It
   fixes ctags lookup so large tags files do not trigger per-entry source scans
