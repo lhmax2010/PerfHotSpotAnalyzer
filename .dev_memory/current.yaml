@@ -1,7 +1,7 @@
 schema_version: 1
-shared_current: hotfix_realboard_analyze_correctness
-shared_last_completed: hotfix_realboard_analyze_correctness
-session_count: 14
+shared_current: hotfix_effective_anchor_handoff
+shared_last_completed: hotfix_effective_anchor_handoff
+session_count: 15
 milestones:
   m0_schema:
     status: completed
@@ -68,22 +68,33 @@ milestones:
     branch: stage/hotfix-realboard-analyze-correctness
     last_commit: tag:stage-hotfix-realboard-analyze-correctness-done
     review_status: pending
+  hotfix_effective_anchor_handoff:
+    status: completed
+    branch: stage/hotfix-effective-anchor-handoff
+    last_commit: tag:stage-hotfix-effective-anchor-handoff-done
+    review_status: pending
 lines:
   A:
-    current: hotfix_realboard_analyze_correctness
-    last_completed: hotfix_realboard_analyze_correctness
-    last_commit: tag:stage-hotfix-realboard-analyze-correctness-done
+    current: hotfix_effective_anchor_handoff
+    last_completed: hotfix_effective_anchor_handoff
+    last_commit: tag:stage-hotfix-effective-anchor-handoff-done
     review_status: pending
   B:
-    current: hotfix_realboard_analyze_correctness
-    last_completed: hotfix_realboard_analyze_correctness
-    last_commit: tag:stage-hotfix-realboard-analyze-correctness-done
+    current: hotfix_effective_anchor_handoff
+    last_completed: hotfix_effective_anchor_handoff
+    last_commit: tag:stage-hotfix-effective-anchor-handoff-done
     review_status: pending
 next_steps:
-  - "Wait for hotfix realboard analyze correctness review."
+  - "Wait for hotfix effective anchor handoff review."
   - "Future work belongs in v1.1/v2 backlog: closed-loop patch validation, true measured_impact, private Compiling Agent API integration, broader profiler/parser support."
 blocked_on: null
 notes: |
+  Hotfix effective anchor handoff is implemented on
+  stage/hotfix-effective-anchor-handoff from the realboard analyze correctness
+  branch. It fixes the A to B handoff by persisting derived effective anchors
+  in A reports and making B prefer serialized anchors for ingest and
+  chosen_anchor output.
+
   Hotfix realboard analyze correctness is implemented on
   stage/hotfix-realboard-analyze-correctness from the ctags performance hotfix
   branch. It codifies the manually verified Tizen armv7l + ffmpeg analyze fixes:

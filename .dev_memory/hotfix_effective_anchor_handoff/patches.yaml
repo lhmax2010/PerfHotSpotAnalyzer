@@ -1,0 +1,13 @@
+patches:
+  - id: p001
+    title: "Persist and hand off effective anchors"
+    commit: "8767dae"
+    files_changed:
+      - "skills/perf-hotspot-analyzer/scripts/build_report.py"
+      - "skills/perf-suggestion-patch/scripts/ingest.py"
+      - "skills/perf-suggestion-patch/scripts/make_patch.py"
+      - "tests/unit/test_a1_build_report.py"
+      - "tests/unit/test_b1_ingest.py"
+      - "tests/unit/test_b3_make_patch.py"
+    rationale: "Write derived effective_anchor in A reports and make B prefer that serialized handoff while preserving advisory-only v1 behavior for A-originated reports without candidates."
+    test_commit: "8767dae"
