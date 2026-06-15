@@ -45,8 +45,9 @@ SKIP_SOURCE_DIR_NAMES = {
     "tests",
     "venv",
 }
-_CTAGS_INDEX_CACHE: dict[Path, dict[str, list[tuple[Path, int, str, str]]]] = {}
+_CTAGS_INDEX_CACHE: dict[Path, dict[str, list[tuple[Path, int | None, str, str]]]] = {}
 _COMPILE_DB_INDEX_CACHE: dict[Path, dict[str, list[tuple[Path, int, str, str]]]] = {}
+_BOUNDED_SEARCH_CACHE: dict[tuple[Path, str, str], tuple[list[tuple[Path, int, str]], bool]] = {}
 DEFAULT_OWNERSHIP = {
     "owned_build_id_sources": [],
     "owned_paths": [],
@@ -568,6 +569,9 @@ def find_source_anchor(
     confidence: float = 0.75,
     evidence: str | None = None,
 ) -> dict[str, Any] | None:
+    symbol = _normalize_symbol(symbol)
+    if _invalid_source_symbol(symbol):
+        return None
     root = Path(repo_root)
     if not root.exists():
         return None
@@ -644,28 +648,47 @@ def _lookup_indexed_source_anchor(
     matches = _ctags_symbol_index(root).get(symbol, [])
     indexed = _unique_index_match(matches)
     if indexed is not None:
-        return indexed
+        return _resolve_indexed_match(symbol, indexed)
 
     matches = _compile_db_symbol_index(root).get(symbol, [])
-    return _unique_index_match(matches)
+    indexed = _unique_index_match(matches)
+    if indexed is None:
+        return None
+    return _resolve_indexed_match(symbol, indexed)
 
 
 def _unique_index_match(
-    matches: list[tuple[Path, int, str, str]],
-) -> tuple[Path, int, str, str] | None:
+    matches: list[tuple[Path, int | None, str, str]],
+) -> tuple[Path, int | None, str, str] | None:
     unique_paths = {match[0] for match in matches}
     if len(unique_paths) != 1 or not matches:
         return None
     return matches[0]
 
 
-def _ctags_symbol_index(root: Path) -> dict[str, list[tuple[Path, int, str, str]]]:
+def _resolve_indexed_match(
+    symbol: str,
+    indexed: tuple[Path, int | None, str, str],
+) -> tuple[Path, int, str, str] | None:
+    path, line_number, matched_line, method = indexed
+    if line_number is not None:
+        return path, line_number, matched_line, method
+    if method != "ctags":
+        return None
+    resolved = _resolve_ctags_pattern(symbol, path, matched_line)
+    if resolved is None:
+        return None
+    resolved_line, resolved_text = resolved
+    return path, resolved_line, f"ctags pattern resolved: {resolved_text}", method
+
+
+def _ctags_symbol_index(root: Path) -> dict[str, list[tuple[Path, int | None, str, str]]]:
     resolved = root.resolve()
     cached = _CTAGS_INDEX_CACHE.get(resolved)
     if cached is not None:
         return cached
 
-    index: dict[str, list[tuple[Path, int, str, str]]] = {}
+    index: dict[str, list[tuple[Path, int | None, str, str]]] = {}
     tags = root / "tags"
     if tags.exists():
         _index_from_ctags(root, tags, index)
@@ -688,7 +711,7 @@ def _compile_db_symbol_index(root: Path) -> dict[str, list[tuple[Path, int, str,
 def _index_from_ctags(
     root: Path,
     tags: Path,
-    index: dict[str, list[tuple[Path, int, str, str]]],
+    index: dict[str, list[tuple[Path, int | None, str, str]]],
 ) -> None:
     try:
         lines = tags.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -707,9 +730,13 @@ def _index_from_ctags(
         if path.suffix not in SOURCE_SUFFIXES:
             continue
         line_number = _ctags_line_number(parts[2], parts[3:])
-        if line_number is None:
+        if line_number is None and _ctags_pattern_body(parts[2]) is None:
             continue
-        matched_line = _ctags_evidence(parts[2], line_number)
+        matched_line = (
+            _ctags_evidence(parts[2], line_number)
+            if line_number is not None
+            else parts[2]
+        )
         index.setdefault(symbol, []).append((path, line_number, matched_line, "ctags"))
 
 
@@ -724,8 +751,6 @@ def _ctags_line_number(address: str, extra_fields: Sequence[str]) -> int | None:
             return int(field.split(":", 1)[1])
         except ValueError:
             return None
-    if text.startswith("/") or text.startswith("?"):
-        return 1
     return None
 
 
@@ -740,6 +765,65 @@ def _shorten(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return f"{value[: limit - 3]}..."
+
+
+def _ctags_pattern_body(address: str) -> str | None:
+    text = address.removesuffix(';"').strip()
+    if not text or text[0] not in {"/", "?"}:
+        return None
+    delimiter = text[0]
+    escaped = False
+    for index in range(1, len(text)):
+        char = text[index]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == delimiter:
+            return text[1:index]
+    return None
+
+
+def _resolve_ctags_pattern(
+    symbol: str,
+    path: Path,
+    address: str,
+) -> tuple[int, str] | None:
+    body = _ctags_pattern_body(address)
+    if body is None:
+        return None
+    try:
+        pattern = re.compile(body)
+    except re.error:
+        pattern = None
+    literal = _ctags_pattern_literal(body)
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line_number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if pattern is not None and pattern.search(stripped):
+            return line_number, stripped
+        if literal and literal == stripped:
+            return line_number, stripped
+    if literal:
+        for line_number, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if symbol in stripped and literal in stripped:
+                return line_number, stripped
+    return None
+
+
+def _ctags_pattern_literal(body: str) -> str:
+    text = body
+    if text.startswith("^"):
+        text = text[1:]
+    if text.endswith("$"):
+        text = text[:-1]
+    return text.replace("\\/", "/").replace("\\\\", "\\").strip()
 
 
 def _index_from_compile_commands(
@@ -823,6 +907,10 @@ def _bounded_source_search(
     *,
     dso: str,
 ) -> tuple[list[tuple[Path, int, str]], bool]:
+    cache_key = (root.resolve(), symbol, dso)
+    cached = _BOUNDED_SEARCH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     matches: list[tuple[Path, int, str]] = []
     started = time.monotonic()
     scanned = 0
@@ -844,7 +932,9 @@ def _bounded_source_search(
             break
     if scanned >= SOURCE_SEARCH_FILE_LIMIT:
         degraded = True
-    return matches, degraded
+    result = (matches, degraded)
+    _BOUNDED_SEARCH_CACHE[cache_key] = result
+    return result
 
 
 def _candidate_source_files(root: Path, *, dso: str) -> Iterable[Path]:
@@ -1082,6 +1172,18 @@ def _normalize_symbol(symbol: str) -> str:
     if "+" in symbol:
         symbol = symbol.split("+", 1)[0]
     return symbol.strip()
+
+
+def _invalid_source_symbol(symbol: str) -> bool:
+    if not symbol:
+        return True
+    if symbol.startswith("["):
+        return True
+    if re.fullmatch(r"0x[0-9a-fA-F]+", symbol):
+        return True
+    return len(symbol) >= 6 and any(char.isdigit() for char in symbol) and bool(
+        re.fullmatch(r"[0-9a-fA-F]+", symbol)
+    )
 
 
 def _split_srcline(value: str) -> tuple[str | None, int | None]:

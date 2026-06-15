@@ -402,6 +402,51 @@ def test_find_source_anchor_uses_ctags_pattern_line_field(tmp_path: Path) -> Non
     assert "pattern address" in anchor["evidence"]
 
 
+def test_find_source_anchor_resolves_pattern_only_ctags_to_real_line(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    source = tmp_path / "libavcodec" / "decode.c"
+    source.parent.mkdir()
+    source.write_text(
+        "\n".join(
+            [
+                "int helper_one(int n) { return n; }",
+                "int helper_two(int n) { return n + 1; }",
+                "",
+                "int ffmpeg_decode_hot_path(int n) { return n * 2; }",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tags").write_text(
+        'ffmpeg_decode_hot_path\tlibavcodec/decode.c\t/^int ffmpeg_decode_hot_path(int n) { return n * 2; }$/;"\tf\n',
+        encoding="utf-8",
+    )
+
+    anchor = postprocess.find_source_anchor(
+        "ffmpeg_decode_hot_path",
+        tmp_path,
+        dso="/usr/lib/libavcodec.so.62.11.100",
+    )
+
+    assert anchor is not None
+    assert anchor["file"] == "libavcodec/decode.c"
+    assert anchor["line_start"] == 4
+    assert "pattern resolved" in anchor["evidence"]
+
+
+def test_find_source_anchor_invalid_symbols_skip_bounded_search(tmp_path: Path, monkeypatch) -> None:
+    postprocess = load_postprocess_module()
+
+    def forbidden_search(symbol: str, root: Path, *, dso: str):
+        raise AssertionError(f"invalid symbol reached bounded search: {symbol}")
+
+    monkeypatch.setattr(postprocess, "_bounded_source_search", forbidden_search)
+
+    for symbol in ["", "[unknown]", "[vdso]", "[kernel.kallsyms]", "0x7f001234", "7f001234abcd"]:
+        assert postprocess.find_source_anchor(symbol, tmp_path, dso="/usr/lib/libavcodec.so") is None
+
+
 def test_find_source_anchor_fallback_prefers_dso_directory_on_large_tree(tmp_path: Path) -> None:
     postprocess = load_postprocess_module()
     source_root = tmp_path / "ffmpeg"
@@ -440,3 +485,57 @@ def test_find_source_anchor_fallback_prefers_dso_directory_on_large_tree(tmp_pat
     assert anchor is not None
     assert anchor["file"] == "ffmpeg/libavcodec/000_decode.c"
     assert anchor["line_start"] == 1
+
+
+def test_postprocess_large_unknown_and_repeated_asm_frames_is_bounded(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    postprocess = load_postprocess_module()
+    source_root = tmp_path / "ffmpeg"
+    (source_root / "libavcodec").mkdir(parents=True)
+    for idx in range(900):
+        (source_root / "libavcodec" / f"unused_{idx}.c").write_text(
+            f"int unused_{idx}(int n) {{ return n + {idx}; }}\n",
+            encoding="utf-8",
+        )
+    ownership = write_ownership(tmp_path)
+    bundle = tmp_path / "bundle"
+    write_bundle(bundle)
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    manifest["backend"] = "ssh"
+    manifest["device"]["arch"] = "armv7l"
+    (bundle / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    dso = "/usr/lib/libavcodec.so.62.11.100"
+    (bundle / "dso-list.txt").write_text(f"abcd1234 {dso}\n", encoding="utf-8")
+    lines: list[str] = []
+    timestamp = 1.0
+    for idx in range(2500):
+        lines.append(f"ffmpeg 4242/4242 {timestamp:.4f}: 00000000 [unknown] ({dso})")
+        timestamp += 0.0001
+    for idx in range(300):
+        lines.append(f"ffmpeg 4242/4242 {timestamp:.4f}: 00001000 ff_hevc_idct_neon ({dso})")
+        timestamp += 0.0001
+    (bundle / "perf-script.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    find_calls = 0
+    original_find = postprocess._find_symbol_in_file
+
+    def counted_find(symbol: str, path: Path):
+        nonlocal find_calls
+        find_calls += 1
+        return original_find(symbol, path)
+
+    monkeypatch.setattr(postprocess, "_find_symbol_in_file", counted_find)
+
+    started = time.monotonic()
+    analysis = postprocess.postprocess_bundle(
+        bundle_dir=bundle,
+        repo_root=tmp_path,
+        ownership_path=ownership,
+        top_n=5,
+    )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 30.0
+    assert any(hotspot["hot_frame"]["symbol"] == "[unknown]" for hotspot in analysis["hotspots"])
+    assert find_calls <= postprocess.SOURCE_SEARCH_FILE_LIMIT
