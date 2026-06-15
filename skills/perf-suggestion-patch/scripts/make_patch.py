@@ -42,9 +42,13 @@ def build_patch_document(
         skill="perf-suggestion-patch",
     )
     repo_root = _repo_root(performance_report)
+    require_candidate = _requires_candidate_for_diff(performance_report)
     patches = []
     gate_decisions = []
-    for index, finding in enumerate(performance_report.get("findings", []), start=1):
+    for index, finding in enumerate(
+        _ordered_patch_findings(performance_report.get("findings", [])),
+        start=1,
+    ):
         patch, decision = _build_patch(
             index=index,
             finding=finding,
@@ -52,6 +56,7 @@ def build_patch_document(
             build_cmd=build_cmd,
             test_cmd=test_cmd,
             benchmark_cmd=benchmark_cmd,
+            require_candidate=require_candidate,
         )
         patches.append(patch)
         gate_decisions.append(decision)
@@ -82,6 +87,33 @@ def build_patch_document(
         gate_decisions=gate_decisions,
         patch_report=patch_report,
     )
+
+
+def _ordered_patch_findings(findings: Any) -> list[dict[str, Any]]:
+    if not isinstance(findings, list):
+        return []
+    normalized = [finding for finding in findings if isinstance(finding, dict)]
+    return sorted(normalized, key=_patch_priority)
+
+
+def _patch_priority(finding: dict[str, Any]) -> tuple[int, int]:
+    actionability = finding.get("actionability")
+    ownership = finding.get("ownership")
+    if ownership == "owned" and actionability == "actionable":
+        bucket = 0
+    elif actionability == "actionable":
+        bucket = 1
+    elif ownership == "system" or actionability == "not-actionable":
+        bucket = 3
+    else:
+        bucket = 2
+    return bucket, _finding_rank(finding)
+
+
+def _finding_rank(finding: dict[str, Any]) -> int:
+    evidence = finding.get("evidence")
+    rank = evidence.get("rank") if isinstance(evidence, dict) else None
+    return int(rank) if isinstance(rank, int) else 1_000_000
 
 
 def build_patch_report(suggestion_patch: dict[str, Any]) -> str:
@@ -160,6 +192,7 @@ def _build_patch(
     build_cmd: str | None,
     test_cmd: str | None,
     benchmark_cmd: str | None,
+    require_candidate: bool,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     chosen_anchor = _chosen_anchor(finding)
     candidate = _first_candidate(finding)
@@ -176,7 +209,13 @@ def _build_patch(
         benchmark_cmd=benchmark_cmd,
     )
 
-    reasons = _advisory_reasons(finding, chosen_anchor, category, candidate)
+    reasons = _advisory_reasons(
+        finding,
+        chosen_anchor,
+        category,
+        candidate,
+        require_candidate=require_candidate,
+    )
     if reasons:
         patch = _advisory_patch(base, finding, chosen_anchor, reasons)
         return patch, _gate_decision(finding, patch, chosen_anchor, reasons)
@@ -322,6 +361,8 @@ def _advisory_patch(
             "status": "advisory-only",
         }
     )
+    if chosen_anchor is not None:
+        patch["chosen_anchor"] = chosen_anchor
     return patch
 
 
@@ -330,10 +371,14 @@ def _advisory_reasons(
     chosen_anchor: dict[str, Any] | None,
     patch_category: str,
     candidate: dict[str, Any],
+    *,
+    require_candidate: bool = False,
 ) -> list[str]:
     reasons = []
     if finding.get("actionability") != "actionable":
         reasons.append(f"actionability={finding.get('actionability', 'unknown')}")
+    if require_candidate and not candidate:
+        reasons.append("candidate_optimization=missing")
     if chosen_anchor is None:
         reasons.append("effective_anchor=null")
     elif _anchor_confidence(chosen_anchor) < ANCHOR_GATE_THRESHOLD:
@@ -487,8 +532,18 @@ def _is_default_allowed_path(path: str) -> bool:
 
 
 def _chosen_anchor(finding: dict[str, Any]) -> dict[str, Any] | None:
+    explicit = finding.get("effective_anchor")
+    if isinstance(explicit, dict):
+        return deepcopy(explicit)
+
     anchor = schema_validate.derive_effective_anchor(finding)
-    return deepcopy(anchor) if anchor is not None else None
+    if anchor is not None:
+        return deepcopy(anchor)
+
+    code_anchors = finding.get("code_anchors")
+    if isinstance(code_anchors, list) and code_anchors and isinstance(code_anchors[0], dict):
+        return deepcopy(code_anchors[0])
+    return None
 
 
 def _anchor_confidence(anchor: dict[str, Any]) -> float:
@@ -558,6 +613,13 @@ def _repo_root(performance_report: dict[str, Any]) -> Path | None:
     if not repo_root:
         return None
     return Path(str(repo_root))
+
+
+def _requires_candidate_for_diff(performance_report: dict[str, Any]) -> bool:
+    provenance = performance_report.get("provenance")
+    if not isinstance(provenance, dict):
+        return False
+    return provenance.get("generated_by") == "perf-hotspot-analyzer/build_report"
 
 
 def _write_patch_artifacts(

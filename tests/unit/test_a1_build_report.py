@@ -127,7 +127,60 @@ def test_build_performance_findings_validates_schema(tmp_path: Path) -> None:
     assert document["report_types"] == ["hotspot-profile"]
     assert document["source_reports"][0]["source_format"] == "perf-script"
     assert "diagnosis" not in document["findings"][0]
+    assert document["findings"][0]["effective_anchor"]["symbol"] == "busy_loop"
+    assert document["findings"][0]["effective_anchor"]["line_start"] == 4
     assert document["findings"][1]["attribution_anchor"]["resolution_method"] == "caller-attribution"
+    assert document["findings"][1]["effective_anchor"]["symbol"] == "my_element_chain"
+    assert document["findings"][1]["effective_anchor"]["line_start"] == 8
+
+
+def test_build_report_populates_effective_anchor_for_realboard_ffmpeg_shape(
+    tmp_path: Path,
+) -> None:
+    build_report = load_build_report_module()
+    analysis = sample_analysis(tmp_path)
+    analysis["target"]["cmdline"] = "ffmpeg -i input.h264 -f null -"
+    analysis["device"] = {"arch": "armv7l"}
+    analysis["hotspots"] = [
+        {
+            "id": "H001",
+            "rank": 1,
+            "samples": 42,
+            "self_cpu_pct": 12.5,
+            "hot_frame": {
+                "symbol": "ff_h264_filter_mb",
+                "dso": "/usr/lib/libavcodec.so.62.11.100",
+                "ownership": "owned",
+            },
+            "callers": ["decode_slice"],
+            "ownership": "owned",
+            "actionability": "actionable",
+            "actionability_reason": "owned hotspot resolved to source",
+            "code_anchor": {
+                "symbol": "ff_h264_filter_mb",
+                "dso": "/usr/lib/libavcodec.so.62.11.100",
+                "file": "libavcodec/h264_loopfilter.c",
+                "line_start": 716,
+                "line_end": 716,
+                "language": "c",
+                "anchor_confidence": 0.75,
+                "resolution_method": "ctags",
+                "evidence": "ctags pattern resolved",
+            },
+            "bottleneck_class": ["cpu-hotspot"],
+        }
+    ]
+
+    document = build_report.build_performance_findings(
+        analysis,
+        repo_root=tmp_path,
+    )
+
+    validate_document(document, document_type=PERFORMANCE_FINDINGS)
+    finding = document["findings"][0]
+    assert finding["effective_anchor"]["symbol"] == "ff_h264_filter_mb"
+    assert finding["effective_anchor"]["file"] == "libavcodec/h264_loopfilter.c"
+    assert finding["effective_anchor"]["line_start"] == 716
 
 
 def test_build_performance_findings_preserves_armv7l_arch(tmp_path: Path) -> None:

@@ -113,9 +113,7 @@ def build_analysis_markdown(
     ]
     for finding in document["findings"]:
         evidence = finding["evidence"]
-        anchor = finding.get("attribution_anchor") or (
-            finding.get("code_anchors") or [{}]
-        )[0]
+        anchor = _effective_anchor_for_report(finding) or {}
         anchor_text = anchor.get("file", "unresolved")
         if anchor.get("line_start"):
             anchor_text = f"{anchor_text}:{anchor['line_start']}"
@@ -280,6 +278,9 @@ def _finding_from_hotspot(
         and "attribution_anchor" not in finding
     ):
         finding["actionability"] = "not-actionable"
+    effective_anchor = schema_validate.derive_effective_anchor(finding)
+    if effective_anchor is not None:
+        finding["effective_anchor"] = dict(effective_anchor)
     return finding
 
 
@@ -340,10 +341,7 @@ def _anchor_summary(findings: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     buckets = {">=0.9": 0, "0.7-0.9": 0, "<0.7": 0}
     resolved = 0
     for finding in findings:
-        anchor = finding.get("attribution_anchor")
-        if not anchor:
-            anchors = finding.get("code_anchors") or []
-            anchor = anchors[0] if anchors else None
+        anchor = _effective_anchor_for_report(finding)
         if not anchor:
             continue
         resolved += 1
@@ -355,6 +353,13 @@ def _anchor_summary(findings: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         else:
             buckets["<0.7"] += 1
     return {"resolved": resolved, "confidence_distribution": buckets}
+
+
+def _effective_anchor_for_report(finding: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    explicit = finding.get("effective_anchor")
+    if isinstance(explicit, Mapping):
+        return explicit
+    return schema_validate.derive_effective_anchor(finding)
 
 
 def _hotspot_reason(analysis: Mapping[str, Any], finding_id: str) -> str:

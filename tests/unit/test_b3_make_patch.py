@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 from common.schema_validate import SUGGESTION_PATCH, derive_effective_anchor, validate_document
@@ -171,6 +172,86 @@ def test_make_patch_missing_anchor_stays_advisory_without_diff(tmp_path: Path) -
     assert patch["status"] == "advisory-only"
     assert "diff" not in patch
     assert "recommendation" in patch
+
+
+def test_make_patch_handoff_uses_effective_anchor_and_stays_advisory_without_candidate(
+    tmp_path: Path,
+) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    report = performance_report(repo)
+    finding = report["findings"][0]
+    finding["title"] = "ff_h264_filter_mb dominates samples"
+    finding["evidence"]["hot_symbol"]["symbol"] = "ff_h264_filter_mb"
+    finding["evidence"]["hot_symbol"]["dso"] = "/usr/lib/libavcodec.so.62.11.100"
+    finding["code_anchors"] = [
+        {
+            "symbol": "ff_h264_filter_mb",
+            "dso": "/usr/lib/libavcodec.so.62.11.100",
+            "file": "libavcodec/h264_loopfilter.c",
+            "line_start": 716,
+            "line_end": 716,
+            "language": "c",
+            "anchor_confidence": 0.75,
+            "resolution_method": "ctags",
+        }
+    ]
+    finding["effective_anchor"] = deepcopy(finding["code_anchors"][0])
+    finding.pop("candidate_optimizations")
+    report["provenance"]["generated_by"] = "perf-hotspot-analyzer/build_report"
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    patch = result.suggestion_patch["patches"][0]
+    assert patch["status"] == "advisory-only"
+    assert patch["chosen_anchor"]["file"] == "libavcodec/h264_loopfilter.c"
+    assert patch["chosen_anchor"]["line_start"] == 716
+    assert patch["validation_status"] == "not-run"
+    assert patch["measured_impact"] is None
+    assert "diff" not in patch
+    assert result.gate_decisions[0]["reason"] == "candidate_optimization=missing"
+
+
+def test_make_patch_orders_owned_actionable_before_system_noise(
+    tmp_path: Path,
+) -> None:
+    make_patch = load_make_patch_module()
+    repo = sample_repo(tmp_path)
+    report = performance_report(repo)
+    system_finding = deepcopy(report["findings"][0])
+    system_finding["id"] = "F002"
+    system_finding["title"] = "spinlock dominates samples"
+    system_finding["ownership"] = "system"
+    system_finding["actionability"] = "not-actionable"
+    system_finding["source_ref"] = {
+        "source_id": "S1",
+        "locator": "$.findings[1]",
+        "label": "queued_spin_lock_slowpath",
+    }
+    system_finding["evidence"]["rank"] = 1
+    system_finding["evidence"]["hot_symbol"] = {
+        "symbol": "queued_spin_lock_slowpath",
+        "dso": "[kernel.kallsyms]",
+        "ownership": "system",
+    }
+    system_finding.pop("code_anchors")
+    system_finding.pop("candidate_optimizations")
+    report["findings"].append(system_finding)
+
+    result = make_patch.build_patch_document(
+        performance_report=report,
+        output_dir=tmp_path / "out",
+        generated_at="2026-06-02T00:00:00+00:00",
+    )
+
+    assert [patch["finding_id"] for patch in result.suggestion_patch["patches"]] == [
+        "F001",
+        "F002",
+    ]
 
 
 def test_build_flag_policy_marks_package_wide_blast_radius(tmp_path: Path) -> None:

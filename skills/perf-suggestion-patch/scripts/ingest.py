@@ -546,7 +546,7 @@ def anchor_findings(findings: list[dict[str, Any]]) -> list[AnchoredFinding]:
 
     anchored: list[AnchoredFinding] = []
     for finding in findings:
-        effective_anchor = schema_validate.derive_effective_anchor(finding)
+        effective_anchor = _effective_anchor_for_finding(finding)
         scored_anchor = _with_scored_confidence(effective_anchor)
         anchored.append(
             AnchoredFinding(
@@ -558,6 +558,21 @@ def anchor_findings(findings: list[dict[str, Any]]) -> list[AnchoredFinding]:
             )
         )
     return anchored
+
+
+def _effective_anchor_for_finding(finding: dict[str, Any]) -> dict[str, Any] | None:
+    explicit = finding.get("effective_anchor")
+    if isinstance(explicit, dict):
+        return explicit
+
+    derived = schema_validate.derive_effective_anchor(finding)
+    if isinstance(derived, dict):
+        return derived
+
+    code_anchors = finding.get("code_anchors")
+    if isinstance(code_anchors, list) and code_anchors and isinstance(code_anchors[0], dict):
+        return code_anchors[0]
+    return None
 
 
 def gate_findings(anchored_findings: list[AnchoredFinding]) -> list[GateDecision]:

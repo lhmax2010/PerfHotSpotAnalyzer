@@ -138,6 +138,57 @@ def test_anchor_findings_uses_schema_validate_derive_effective_anchor(monkeypatc
     assert anchored[0].effective_anchor["anchor_confidence"] == 0.75
 
 
+def test_anchor_findings_prefers_serialized_effective_anchor(monkeypatch) -> None:
+    ingest = load_ingest_module()
+    calls = []
+
+    def fake_derive(finding):
+        calls.append(finding["id"])
+        return {
+            "symbol": "code_anchor_symbol",
+            "file": "libavcodec/wrong.c",
+            "line_start": 1,
+            "line_end": 1,
+            "anchor_confidence": 0.95,
+            "resolution_method": "dwarf",
+        }
+
+    monkeypatch.setattr(ingest.schema_validate, "derive_effective_anchor", fake_derive)
+
+    anchored = ingest.anchor_findings(
+        [
+            {
+                "id": "F001",
+                "effective_anchor": {
+                    "symbol": "ff_h264_filter_mb",
+                    "file": "libavcodec/h264_loopfilter.c",
+                    "line_start": 716,
+                    "line_end": 716,
+                    "anchor_confidence": 0.72,
+                    "resolution_method": "ctags",
+                },
+                "code_anchors": [
+                    {
+                        "symbol": "code_anchor_symbol",
+                        "file": "libavcodec/wrong.c",
+                        "line_start": 1,
+                        "line_end": 1,
+                        "anchor_confidence": 0.95,
+                        "resolution_method": "dwarf",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert calls == []
+    assert anchored[0].effective_anchor["symbol"] == "ff_h264_filter_mb"
+    assert anchored[0].effective_anchor["file"] == "libavcodec/h264_loopfilter.c"
+    assert anchored[0].effective_anchor["line_start"] == 716
+    assert anchored[0].effective_anchor["reported_anchor_confidence"] == 0.72
+    assert anchored[0].effective_anchor["anchor_confidence"] == 0.75
+
+
 @pytest.mark.parametrize(
     ("method", "expected"),
     [
