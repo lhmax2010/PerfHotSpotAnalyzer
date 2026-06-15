@@ -183,6 +183,29 @@ def test_classify_ownership_covers_owned_third_party_system_unknown(tmp_path: Pa
     assert postprocess.classify_ownership("/opt/mystery.so", None, profile).ownership == "unknown"
 
 
+def test_ownership_matches_versioned_usr_lib_by_basename_glob(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    profile = postprocess.OwnershipProfile(
+        owned_build_id_sources=[],
+        owned_paths=["*/libxxx.so*", "/lib/libavcodec.so*"],
+        third_party_paths=[],
+        system_paths=[],
+    )
+
+    assert postprocess.classify_ownership(
+        "/usr/lib/libxxx.so.1.2.3",
+        None,
+        profile,
+    ).ownership == "owned"
+    decision = postprocess.classify_ownership(
+        "/usr/lib/libavcodec.so.62.11.100",
+        None,
+        profile,
+    )
+    assert decision.ownership == "owned"
+    assert decision.reason == "owned_paths:/lib/libavcodec.so*"
+
+
 def test_select_attribution_frame_uses_nearest_owned_to_hotspot(tmp_path: Path) -> None:
     postprocess = load_postprocess_module()
     profile = postprocess.load_ownership_profile(write_ownership(tmp_path))
@@ -291,6 +314,54 @@ def test_unknown_hotspot_is_informational(tmp_path: Path) -> None:
 
     assert hotspots[0].actionability == "informational"
     assert hotspots[0].actionability_reason == "unknown hotspot ownership"
+
+
+def test_top_n_keeps_owned_hotspot_when_system_noise_is_larger(tmp_path: Path) -> None:
+    postprocess = load_postprocess_module()
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "owned.c").write_text(
+        "int owned_hot(int n) { return n + 1; }\n",
+        encoding="utf-8",
+    )
+    profile = postprocess.load_ownership_profile(write_ownership(tmp_path))
+    samples: list[object] = []
+    for idx in range(5):
+        for _repeat in range(5):
+            samples.append(
+                postprocess.StackSample(
+                    frames=[
+                        postprocess.Frame(
+                            f"[system_noise_{idx}]",
+                            "[kernel.kallsyms]",
+                            ownership="system",
+                        )
+                    ]
+                )
+            )
+    samples.append(
+        postprocess.StackSample(
+            frames=[
+                postprocess.Frame(
+                    "owned_hot",
+                    "/usr/lib/libxxx.so.1.2.3",
+                    ownership="owned",
+                )
+            ]
+        )
+    )
+
+    hotspots = postprocess.analyze_hotspots(
+        samples,
+        profile=profile,
+        repo_root=tmp_path,
+        total_samples=len(samples),
+        top_n=3,
+    )
+
+    assert any(hotspot.hot_frame.symbol == "owned_hot" for hotspot in hotspots)
+    owned = [hotspot for hotspot in hotspots if hotspot.hot_frame.symbol == "owned_hot"][0]
+    assert owned.actionability == "actionable"
 
 
 def test_parse_dso_build_ids_maps_paths(tmp_path: Path) -> None:

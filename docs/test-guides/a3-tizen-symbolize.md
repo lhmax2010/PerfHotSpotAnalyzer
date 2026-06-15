@@ -170,6 +170,15 @@ python3 -m cli.perf_hotspot_analyzer report \
   --output-dir out/a3-report
 ```
 
+For versioned Tizen DSOs, prefer basename globs in ownership rules so target
+paths and symbolized `/usr/lib` paths both match:
+
+```yaml
+owned_paths:
+  - "*/libavcodec.so*"
+  - "*/libavformat.so*"
+```
+
 ## SDB Fallback
 
 Create `.perf-skill/devices/tizen-arm-sdb.yaml`:

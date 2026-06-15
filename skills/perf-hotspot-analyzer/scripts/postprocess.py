@@ -471,10 +471,7 @@ def analyze_hotspots(
         grouped.setdefault((hot.symbol, hot.dso), []).append(sample)
 
     hotspots: list[Hotspot] = []
-    sorted_groups = sorted(
-        grouped.items(),
-        key=lambda item: (-len(item[1]), item[0][0], item[0][1]),
-    )[:top_n]
+    sorted_groups = _select_hotspot_groups(grouped, top_n=top_n)
     for rank, ((_symbol, _dso), group) in enumerate(sorted_groups, start=1):
         representative = _representative_stack(group)
         hot = representative.frames[0]
@@ -1204,10 +1201,43 @@ def _owned_build_id_known(build_id: str, profile: OwnershipProfile) -> bool:
 
 
 def _first_match(value: str, patterns: Iterable[str]) -> str | None:
+    value_candidates = _ownership_value_candidates(value)
     for pattern in patterns:
-        if fnmatch.fnmatch(value, pattern):
-            return pattern
+        for pattern_candidate in _ownership_pattern_candidates(pattern):
+            if any(fnmatch.fnmatch(candidate, pattern_candidate) for candidate in value_candidates):
+                return pattern
     return None
+
+
+def _ownership_value_candidates(value: str) -> list[str]:
+    candidates = [value]
+    if value.startswith("/usr/"):
+        candidates.append(value[4:])
+    elif value.startswith("/lib/") or value.startswith("/lib64/"):
+        candidates.append(f"/usr{value}")
+    name = Path(value).name
+    if name and name != value:
+        candidates.append(name)
+    return list(dict.fromkeys(candidates))
+
+
+def _ownership_pattern_candidates(pattern: str) -> list[str]:
+    candidates = [pattern]
+    if pattern.startswith("/usr/"):
+        candidates.append(pattern[4:])
+    elif pattern.startswith("/lib/") or pattern.startswith("/lib64/"):
+        candidates.append(f"/usr{pattern}")
+    name = Path(pattern).name
+    if name and name != pattern and _safe_basename_pattern(name):
+        candidates.append(name)
+    return list(dict.fromkeys(candidates))
+
+
+def _safe_basename_pattern(pattern: str) -> bool:
+    if pattern.startswith("*"):
+        return False
+    literal_prefix = re.split(r"[*?[]", pattern, maxsplit=1)[0]
+    return len(literal_prefix) >= 3
 
 
 def _looks_system_dso(dso: str) -> bool:
@@ -1224,6 +1254,30 @@ def _representative_stack(group: Sequence[StackSample]) -> StackSample:
         by_key[key] = sample
     best = max(counts, key=lambda key: (counts[key], -len(key)))
     return by_key[best]
+
+
+def _select_hotspot_groups(
+    grouped: dict[tuple[str, str], list[StackSample]],
+    *,
+    top_n: int,
+) -> list[tuple[tuple[str, str], list[StackSample]]]:
+    sorted_groups = sorted(
+        grouped.items(),
+        key=lambda item: (-len(item[1]), item[0][0], item[0][1]),
+    )
+    selected: list[tuple[tuple[str, str], list[StackSample]]] = sorted_groups[:top_n]
+    selected_keys = {key for key, _group in selected}
+    owned_groups = [
+        item
+        for item in sorted_groups
+        if item[1] and item[1][0].frames and item[1][0].frames[0].ownership == "owned"
+    ][:top_n]
+    for key, group in owned_groups:
+        if key in selected_keys:
+            continue
+        selected.append((key, group))
+        selected_keys.add(key)
+    return selected
 
 
 def _actionability_for_hotspot(
